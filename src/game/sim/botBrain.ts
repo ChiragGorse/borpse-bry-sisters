@@ -3,7 +3,7 @@
  * local testing (`?bots=N` in the browser) and by the headless soak test.
  */
 import { SPOT } from '../layout';
-import type { Sim } from './Sim';
+import type { GameSim } from './gameSim';
 import { BTN, type Player, type PlayerInput } from './types';
 
 interface Memory {
@@ -16,6 +16,8 @@ interface Memory {
   /** Seconds spent chasing truffles without picking one up; after a while the bot gives up for a bit. */
   chaseT: number;
   ignoreT: number;
+  /** Seconds idling on the farm with nothing to pick up. */
+  idleT: number;
   truffles: number;
 }
 
@@ -28,7 +30,6 @@ export interface BotBrainOptions {
 
 export class BotBrain {
   private mem = new Map<number, Memory>();
-  private idleT = 0;
   private opts: BotBrainOptions;
   private seed = 1;
 
@@ -41,17 +42,17 @@ export class BotBrain {
     return (this.seed >>> 0) / 4294967296;
   }
 
-  private memory(sim: Sim, p: Player): Memory {
+  private memory(sim: GameSim, p: Player): Memory {
     let m = this.mem.get(p.id);
     if (!m) {
-      m = { strafe: p.id % 2 ? 1 : -1, flipT: 2, attackT: 0, wanderX: p.x, wanderZ: p.z, wanderT: 0, chaseT: 0, ignoreT: 0, truffles: sim.truffles };
+      m = { strafe: p.id % 2 ? 1 : -1, flipT: 2, attackT: 0, wanderX: p.x, wanderZ: p.z, wanderT: 0, chaseT: 0, ignoreT: 0, idleT: 0, truffles: sim.truffles };
       this.mem.set(p.id, m);
     }
     return m;
   }
 
   /** Inputs for one step for the given bot-controlled player. */
-  think(sim: Sim, p: Player, dt: number): PlayerInput {
+  think(sim: GameSim, p: Player, dt: number): PlayerInput {
     const out: PlayerInput = { mx: 0, mz: 0, buttons: 0 };
     if (p.action === 'dead' || sim.opening) return out;
     const m = this.memory(sim, p);
@@ -182,11 +183,11 @@ export class BotBrain {
       steer(px, pz, 0.3);
       return out;
     }
-    this.idleT += dt / Math.max(1, sim.players.length);
-    if (this.opts.ringBell && this.idleT > (this.opts.bellDelay ?? 2)) {
+    m.idleT += dt;
+    if (this.opts.ringBell && m.idleT > (this.opts.bellDelay ?? 2)) {
       if (steer(SPOT.bell.x, SPOT.bell.z + 2, 1) < 3.5) {
         out.buttons |= BTN.interact;
-        this.idleT = 0;
+        m.idleT = 0;
       }
       return out;
     }

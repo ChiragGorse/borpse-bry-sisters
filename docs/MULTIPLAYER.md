@@ -52,15 +52,46 @@ are ids, so the state can be serialised for the network.
   forest trip and as many courses as it survives, checking for errors, non-finite positions and
   escapes from the map.
 
+## Phase 2 (this branch): game server and online play
+
+```
+server/index.ts         HTTP (serves dist/) + WebSocket endpoint /ws?room=CODE&name=NAME, room registry
+server/room.ts          one authoritative Sim per room at 30 Hz: players, host, bots, commands, broadcast
+server/ws.ts            dependency-free WebSocket server (RFC 6455) on node:http
+server/maps.ts          builds the farm/forest colliders in Node; each room gets its own copy
+src/game/net/protocol.ts  message types and the compact snapshot format (shared)
+src/game/net/encode.ts    server: Sim → snapshot
+src/game/net/NetSim.ts    client: mirrors the server's state, interpolates, forwards commands
+src/game/net/NetClient.ts client: connection, lobby status
+scripts/net-test.ts     starts the server and plays a room with three WebSocket clients
+```
+
+- **Rooms.** A four-letter code. Joining an unknown code creates that room; joining with no code
+  creates one with a random code. The first person in is the host: they pick bot pigs and start the
+  run. If the host leaves, the next person takes over. People can join a game in progress and
+  appear beside the herd. A room closes when the last person leaves.
+- **Ticks and snapshots.** The server steps the simulation at 30 Hz and sends every client the
+  same message per tick: entity data as value arrays (key lists in `protocol.ts`, numbers rounded
+  to hundredths), slow-changing state (upgrades, banners, squad, prompts) only when it changes,
+  stats once a second, and that tick's events.
+- **Inputs.** Clients send movement plus the buttons pressed since their last message, at up to
+  30 Hz. The server ORs presses together until its next tick, clamps movement to a full stick,
+  stops a pig whose client goes quiet for 0.3 s, and cuts off clients that flood messages.
+- **Rendering.** Other entities are drawn 100 ms behind the newest snapshot and blended between
+  snapshots. Your own pig is drawn from the newest snapshot, pushed ahead by its velocity. Events
+  play when their moment comes up on screen.
+- **Online rules.** No pausing (the pause menu just opens over the live game) and no opening
+  story. Shops are per player while the herd keeps playing. After a wipe anyone can retry.
+
+See [HOSTING.md](HOSTING.md) to run it.
+
+Tests: `npm run net:test` (server + three clients, ~40 s) and `npm run sim:soak`.
+
 ## Next phases
 
-2. **Server + netcode.** A Node server runs `Sim` per room (`scripts/headless-maps.ts` shows how
-   to build the map colliders in Node) at a fixed tick, receives `PlayerInput`s over WebSockets
-   and broadcasts snapshots plus `SimEvent`s. Clients interpolate other entities ~100 ms behind
-   and predict their own pig. `Game` reads the simulation through its public fields, so a client
-   can render a snapshot-backed state object instead of a local `Sim`.
-3. **Co-op polish.** Reviving downed pigs, per-player shops/economy, pause/cutscene voting,
-   per-player camera shake and sounds.
+3. **Feel and co-op polish.** Client-side prediction for your own pig (it currently feels the
+   connection's round trip), reviving downed pigs, per-player shops/economy, per-player sounds.
 4. **Player-controlled Allen.** Allen is a state machine with per-move cooldowns; a human Allen
    replaces the "pick the next move" step in `updateAllen` with button presses.
-5. **Polish.** Reconnects, lobby, bandwidth tuning.
+5. **Polish.** Reconnecting to your pig after a dropped connection, a room browser, compressing
+   snapshots further (deltas), persistence across server restarts.

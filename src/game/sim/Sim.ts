@@ -99,7 +99,7 @@ export function zapCooldown(lv: number): number {
   return lv >= 3 ? 6.0 : lv >= 2 ? 7.5 : 9.5;
 }
 
-function newPlayer(id: number, name: string, tint: number): Player {
+export function newPlayer(id: number, name: string, tint: number): Player {
   return {
     id,
     name,
@@ -151,7 +151,7 @@ function newPlayer(id: number, name: string, tint: number): Player {
   };
 }
 
-function newAllen() {
+export function newAllen() {
   return {
     active: false,
     x: 0,
@@ -328,7 +328,9 @@ export class Sim {
     this.players.push(p);
     this.applyStats(true);
     const slot = this.players.length - 1;
-    const pos = this.spawnSpot(slot);
+    // someone joining mid-game turns up beside the first pig, wherever the herd is
+    const lead = this.players[0];
+    const pos = slot > 0 ? this.spawnSpot(slot, lead.x, lead.z, lead.heading) : this.spawnSpot(0);
     p.x = pos.x;
     p.z = pos.z;
     this.dirty = true;

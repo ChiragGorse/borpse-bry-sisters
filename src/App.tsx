@@ -7,6 +7,7 @@ import { GameOverScreen, OpeningCutscene, PauseScreen, TitleScreen, VictoryScree
 import { navigatePadMenu } from './ui/gamepadMenu';
 import { MobileControls } from './ui/MobileControls';
 import { useTouchDevice } from './ui/useTouchDevice';
+import type { NetStatus } from './game/net/NetClient';
 
 const initialBots = (() => {
   const q = Number(new URLSearchParams(window.location.search).get('bots'));
@@ -23,6 +24,10 @@ export default function App() {
   const [error, setError] = useState(false);
   // ?bots=N or #bots-N fills the herd with N stand-in pigs for trying out multiplayer locally
   const [bots, setBotsState] = useState(initialBots);
+  const [net, setNet] = useState<NetStatus | null>(null);
+  const serverUrl = Game.serverUrl();
+  const joinOnline = useCallback((room: string, name: string) => game.current?.joinOnline(room, name), []);
+  const leaveOnline = useCallback(() => game.current?.leaveOnline(), []);
   const setBots = useCallback((n: number) => {
     setBotsState(n);
     game.current?.setBots(n);
@@ -37,7 +42,7 @@ export default function App() {
     const boot = () => {
       if (cancelled || !mount.current) return;
       try {
-        g = new Game(mount.current, setHud, { bots: initialBots });
+        g = new Game(mount.current, setHud, { bots: initialBots, onNet: setNet });
         g.setGamepadMenu((command) => root.current ? navigatePadMenu(root.current, command) : false);
         game.current = g;
         setPortraits(g.portraits);
@@ -67,6 +72,7 @@ export default function App() {
   const buy = useCallback((id: UpgradeId) => game.current?.buy(id), []);
 
   const screen = hud?.screen;
+  const onlinePlay = net?.state === 'playing';
   const showHud = hud && !hud.opening && (screen === 'play' || screen === 'shop' || screen === 'paused');
   // On-screen controls only on phones/tablets, and only while actually playing (not in menus or cutscenes).
   const showTouch = touch && hud && !hud.opening && screen === 'play' && !hud.gamepad?.active;
@@ -110,7 +116,15 @@ export default function App() {
           onSkip={() => game.current?.finishOpening()}
         />
       )}
-      {hud && screen === 'title' && <TitleScreen portraits={portraits} pad={hud.gamepad?.layout} touch={touch} bots={bots} onBots={setBots} onStart={start} />}
+      {hud && screen === 'title' && <TitleScreen
+          portraits={portraits}
+          pad={hud.gamepad?.layout}
+          touch={touch}
+          bots={bots}
+          onBots={setBots}
+          online={{ available: !!serverUrl, status: net, onJoin: joinOnline, onLeave: leaveOnline }}
+          onStart={start}
+        />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}
       {hud && screen === 'paused' && (
         <PauseScreen
@@ -121,7 +135,9 @@ export default function App() {
           onGraphics={() => game.current?.cycleGraphics()}
           onResume={() => game.current?.resume()}
           onMute={() => game.current?.toggleMute()}
-          onRestart={start}
+          onRestart={onlinePlay ? leaveOnline : start}
+          restartLabel={onlinePlay ? 'Leave room' : undefined}
+          note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : undefined}
           onReturnFarm={hud.area === 'forest' ? () => game.current?.returnToFarm() : undefined}
         />
       )}

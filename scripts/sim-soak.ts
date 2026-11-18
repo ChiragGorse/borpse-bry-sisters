@@ -6,7 +6,7 @@
  *
  * Exits non-zero if the simulation throws, a position goes NaN, or an entity escapes the map.
  */
-import { headlessMaps } from './headless-maps';
+import { headlessMaps } from '../server/maps';
 import { Sim } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { BTN, type PlayerInput } from '../src/game/sim/types';

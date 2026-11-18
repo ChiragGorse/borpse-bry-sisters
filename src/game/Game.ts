@@ -48,9 +48,12 @@ import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
 import { COIL, FOREST_EXIT, FOREST_HOMES, GUPPY_END, GUPPY_SWING, SPOT, isOnLakeDock } from './layout';
 import { GamepadInput, PAD_ACTIONS, PadMenuRepeat, padDown, type PadFrame, type PadLayout, type PadMenuCommand } from './gamepad';
-import { MAX_SQUAD, Sim, zapCooldown } from './sim/Sim';
+import { MAX_SQUAD, Sim, newPlayer, zapCooldown } from './sim/Sim';
+import type { GameSim } from './sim/gameSim';
+import { NetClient, defaultServerUrl, type NetStatus } from './net/NetClient';
+import type { NetSim } from './net/NetSim';
 import { BotBrain } from './sim/botBrain';
-import { BTN, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent } from './sim/types';
+import { BTN, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -142,6 +145,8 @@ interface AllyView { m: KenjiModel; hpBar: WorldHpBar }
 export interface GameOptions {
   /** Extra bot-controlled pigs to fill out the herd for local testing (0-7). */
   bots?: number;
+  /** Told about online-play changes (connecting, lobby, playing, disconnected); null when offline. */
+  onNet?: (s: NetStatus | null) => void;
 }
 
 export class Game {
@@ -208,8 +213,15 @@ export class Game {
   private hudTimer = 0;
   private mapTimer = 0;
 
-  /* simulation */
-  private sim: Sim;
+  /* simulation: the local one, or a mirror of a game server's while playing online */
+  private sim: GameSim;
+  private localSim: Sim;
+  private localPid: number;
+  private net: NetClient | null = null;
+  private onNet?: (s: NetStatus | null) => void;
+  /** Placeholder pig while an online game hasn't sent ours yet. */
+  private ghost = newPlayer(0, '', 0xf7a8b8);
+  private ghostModel = makeKenji();
   /** Id of the pig this browser controls. */
   private localId: number;
   private brain: BotBrain | null = null;
@@ -317,16 +329,10 @@ export class Game {
     this.scene.add(this.world.group);
 
     /* the simulation, with the local pig (and any stand-in bots) */
-    this.sim = new Sim({
-      farm: { colliders: this.world.colliders, edibles: this.world.edibles },
-      loadForest: () => {
-        this.forest = buildForest();
-        this.scene.add(this.forest.group);
-        setGrassDensity(this.forest.grass, this.grassFactor());
-        return { colliders: this.forest.colliders };
-      },
-    });
-    this.localId = this.sim.addPlayer('Kenji')!.id;
+    this.onNet = opts.onNet;
+    this.localSim = new Sim(this.maps());
+    this.sim = this.localSim;
+    this.localId = this.localPid = this.localSim.addPlayer('Kenji')!.id;
     this.setBots(opts.bots ?? 0);
 
     this.openingPigs = [makeKenji(0xf0b4a7, true), makeKenji(0xe99b8f, true), makeKenji(0xcfa58f, true)];
@@ -403,11 +409,135 @@ export class Game {
 
   /** The pig this browser controls. */
   private get me(): Player {
-    return this.sim.player(this.localId) ?? this.sim.players[0];
+    return this.sim.player(this.localId) ?? this.sim.players[0] ?? this.ghost;
   }
 
   private get kModel(): KenjiModel {
-    return this.players.get(this.localId)!.m;
+    return this.players.get(this.localId)?.m ?? this.ghostModel;
+  }
+
+  /** The map data a simulation needs; the forest's scenery is built the first time anyone goes there. */
+  private maps(): SimMaps {
+    return {
+      farm: { colliders: this.world.colliders, edibles: this.world.edibles },
+      loadForest: () => {
+        if (!this.forest) {
+          this.forest = buildForest();
+          this.forest.group.visible = false;
+          this.scene.add(this.forest.group);
+          setGrassDensity(this.forest.grass, this.grassFactor());
+        }
+        return { colliders: this.forest.colliders };
+      },
+    };
+  }
+
+  private get online(): boolean {
+    return this.net !== null && this.sim !== this.localSim;
+  }
+
+  /* ───────────────────────── online play ───────────────────────── */
+
+  /** Where this page can find a game server, or null (e.g. opened from a file or an artifact). */
+  static serverUrl(): string | null {
+    return defaultServerUrl();
+  }
+
+  /** Connects to a game server and joins (or creates, with an empty code) a room. */
+  joinOnline(room: string, name: string, url = defaultServerUrl()) {
+    if (!url || this.screen !== 'title') return;
+    this.leaveOnline(false);
+    this.net = new NetClient(
+      url,
+      room,
+      name,
+      this.maps(),
+      (s) => this.onNetStatus(s),
+      (sim) => this.useSim(sim, sim.localId),
+    );
+  }
+
+  /** Drops the connection and goes back to playing on this device. */
+  leaveOnline(notify = true) {
+    if (!this.net) return;
+    this.net.close();
+    this.net = null;
+    this.useSim(this.localSim, this.localPid);
+    if (this.screen !== 'title') {
+      this.screen = 'title';
+      this.unlock();
+      this.placeTitle();
+    }
+    if (notify) this.onNet?.(null);
+    this.emit();
+  }
+
+  private useSim(sim: GameSim, localId: number) {
+    this.sim = sim;
+    this.localId = localId;
+    this.clearViews();
+    this.wasAllenActive = false;
+    this.syncPlayers(0);
+    this.emit();
+  }
+
+  private onNetStatus(s: NetStatus) {
+    this.onNet?.(s);
+    if (s.state === 'playing' && this.screen === 'title') {
+      // the host started (or we joined a game in progress)
+      this.sfx.unlock();
+      this.screen = 'play';
+      this.aModel.root.visible = false;
+      this.controllerDisconnected = false;
+      this.lock();
+      this.emit();
+    } else if (s.state === 'closed') {
+      // keep the error for the title screen, but play offline from here
+      const err = s;
+      this.net?.close();
+      this.net = null;
+      this.useSim(this.localSim, this.localPid);
+      if (this.screen !== 'title') {
+        this.screen = 'title';
+        this.unlock();
+        this.placeTitle();
+      }
+      this.onNet?.(err);
+      this.emit();
+    }
+  }
+
+  /** Removes every entity model so the next sync rebuilds them from the current simulation. */
+  private clearViews() {
+    for (const v of this.players.values()) this.discard(v.m.root);
+    this.players.clear();
+    for (const v of this.botViews.values()) {
+      if (v.ring) this.scene.remove(v.ring);
+      this.discard(v.m.root);
+    }
+    this.botViews.clear();
+    for (const v of this.projViews.values()) this.discard(v.mesh);
+    this.projViews.clear();
+    for (const v of [...this.puddleViews.values(), ...this.shockViews.values()]) {
+      this.scene.remove(v.mesh);
+      v.mat.dispose();
+    }
+    this.puddleViews.clear();
+    this.shockViews.clear();
+    for (const v of this.pickupViews.values()) this.discard(v);
+    this.pickupViews.clear();
+    for (const v of this.kernelViews.values()) this.discard(v);
+    this.kernelViews.clear();
+    for (const v of this.potViews.values()) this.discard(v.root);
+    this.potViews.clear();
+    for (const v of this.hazardViews.values()) this.scene.remove(v.g);
+    this.hazardViews.clear();
+    for (const v of this.memorialViews.values()) this.discard(v);
+    this.memorialViews.clear();
+    for (const v of this.wildViews.values()) this.discard(v.root);
+    this.wildViews.clear();
+    for (const v of this.allyViews.values()) this.discard(v.m.root);
+    this.allyViews.clear();
   }
 
   /* ───────────────────────── setup helpers ───────────────────────── */
@@ -704,12 +834,17 @@ export class Game {
 
   /** Sets how many stand-in bot pigs join the herd (0-7). Takes effect from the title screen. */
   setBots(n: number) {
+    if (this.online) {
+      // the room's host chooses the server's bot pigs
+      (this.sim as NetSim).setBots(n);
+      return;
+    }
     const want = clamp(Math.floor(n) || 0, 0, 7);
-    for (const id of this.botIds) this.sim.removePlayer(id);
+    for (const id of this.botIds) this.localSim.removePlayer(id);
     this.botIds = [];
     this.brain = want > 0 ? new BotBrain() : null;
     for (let i = 0; i < want; i++) {
-      const p = this.sim.addPlayer(`Bot ${i + 1}`);
+      const p = this.localSim.addPlayer(`Bot ${i + 1}`);
       if (p) this.botIds.push(p.id);
     }
     this.syncPlayers(0);
@@ -853,6 +988,12 @@ export class Game {
 
   start() {
     this.sfx.unlock();
+    if (this.online) {
+      // online, the server starts the run (host only) and every browser follows its lead
+      if (this.screen === 'title') this.sim.start();
+      else (this.sim as NetSim).restart();
+      return;
+    }
     this.sim.start();
     this.restoreCinematicActors();
     this.controllerDisconnected = false;
@@ -881,6 +1022,7 @@ export class Game {
 
   retryCourse() {
     this.sim.retryCourse();
+    if (this.online) return; // the game resumes when the server says so
     this.screen = 'play';
     this.processEvents();
     this.lock();
@@ -904,6 +1046,21 @@ export class Game {
     this.sfx.unlock();
     this.lock();
     this.emit();
+  }
+
+  /** Online the world keeps going behind the shop and pause menus; keep it on screen and in sync. */
+  private updateOnlineBackground(dt: number) {
+    this.sim.step(dt, new Map());
+    this.processEvents();
+    this.syncAll(dt);
+    this.animateNpcs(dt);
+    this.parts.update(dt, this.camera);
+    if (this.screen === 'shop' && !this.me.shopNpc) {
+      this.screen = 'play';
+      this.lock();
+      this.emit();
+    }
+    if (this.sim.dirty) this.emit();
   }
 
   returnToFarm() {
@@ -1093,6 +1250,7 @@ export class Game {
     this.time += dt;
     this.updateGamepad(now, dt);
     if (this.screen === 'play') this.updatePlay(dt);
+    else if (this.online && (this.screen === 'shop' || this.screen === 'paused')) this.updateOnlineBackground(dt);
     else this.updateIdle(dt);
     this.updateSky(dt);
     this.gfx.render(dt, this.time);
@@ -1109,6 +1267,18 @@ export class Game {
       this.kModel.tail.rotation.z = Math.sin(this.time * 9) * 0.3;
       this.aModel.pivot.position.y = Math.sin(this.time * 2) * 0.06;
     } else if (this.screen === 'gameover' || this.screen === 'victory') {
+      if (this.online) {
+        // someone chose retry / play again: follow the server back into the game
+        this.sim.step(dt, new Map());
+        this.processEvents();
+        this.syncAll(dt);
+        if (!this.sim.outcome) {
+          this.screen = 'play';
+          this.lock();
+          this.emit();
+          return;
+        }
+      }
       this.yaw += dt * 0.15;
       this.world.update(this.time, dt, []);
       this.animateNpcs(dt);
@@ -1127,7 +1297,7 @@ export class Game {
   private gatherInputs(dt: number): Map<number, PlayerInput> {
     const inputs = new Map<number, PlayerInput>();
     inputs.set(this.localId, this.localInput());
-    if (this.brain) {
+    if (this.brain && !this.online) {
       for (const id of this.botIds) {
         const p = this.sim.player(id);
         if (p) inputs.set(id, this.brain.think(this.sim, p, dt));
@@ -1769,6 +1939,9 @@ export class Game {
     /* static props that depend on simulation state */
     this.world.group.visible = farm;
     if (this.forest) this.forest.group.visible = !farm;
+    this.rick.root.visible = farm;
+    this.king.root.visible = farm;
+    this.trout.root.visible = farm;
     this.turret.root.visible = farm && sim.levels.cannon > 0;
     this.turret.head.rotation.y = sim.turretYaw;
     // crops and pies disappear bite by bite as Allen eats them

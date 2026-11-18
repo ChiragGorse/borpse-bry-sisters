@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import type { NetStatus } from '../game/net/NetClient';
 import type { HudState } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
 import { Key, Portrait } from './Hud';
@@ -79,12 +80,149 @@ const HERD_SIZES = [
   { bots: 7, label: '+7 bots' },
 ];
 
+export interface OnlineProps {
+  /** Whether this page can reach a game server at all. */
+  available: boolean;
+  status: NetStatus | null;
+  onJoin: (room: string, name: string) => void;
+  onLeave: () => void;
+}
+
+const ONLINE_BOTS = [0, 2, 4];
+
+function readPref(key: string, fallback: string) {
+  try {
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writePref(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* private window: fine, we just won't remember it */
+  }
+}
+
+/** Host or join an online room, then wait in its lobby. */
+function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: number) => void }) {
+  const st = online.status;
+  const [name, setName] = useState(() => readPref('borpse.name', 'Kenji'));
+  const [room, setRoom] = useState(() => new URLSearchParams(window.location.search).get('room')?.toUpperCase().slice(0, 4) ?? '');
+  const [copied, setCopied] = useState(false);
+  if (!online.available) {
+    return <p className="rise-in text-xs font-medium text-paper/70 [animation-delay:170ms]">Online co-op needs the game server: open the game from a Borpse server to play with friends.</p>;
+  }
+  const inRoom = st && (st.state === 'lobby' || st.state === 'connecting');
+  if (inRoom) {
+    const link = `${window.location.origin}${window.location.pathname}?room=${st.room}`;
+    const humans = st.players.filter((p) => !p.bot);
+    return (
+      <section aria-label="Online room" className="sticker rise-in flex max-w-[560px] flex-col gap-2 p-3 [animation-delay:170ms]">
+        {st.state === 'connecting' ? (
+          <p className="text-sm font-bold" role="status">Connecting to the game server…</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-ink/70">Room</span>
+              <span className="font-display text-2xl leading-none tracking-[0.12em]">{st.room}</span>
+              <button
+                type="button"
+                className="rounded-full border-2 border-ink bg-white px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wide"
+                onClick={() => {
+                  navigator.clipboard?.writeText(link).then(
+                    () => setCopied(true),
+                    () => setCopied(false),
+                  );
+                }}
+              >
+                {copied ? 'Link copied' : 'Copy invite link'}
+              </button>
+              <button type="button" onClick={online.onLeave} className="ml-auto text-xs font-extrabold uppercase tracking-wide text-barn underline">
+                Leave
+              </button>
+            </div>
+            <ul aria-label="Pigs in this room" className="flex flex-wrap gap-1.5">
+              {st.players.map((p) => (
+                <li key={p.id} className="flex items-center gap-1 rounded-full border-2 border-ink bg-white px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide">
+                  <span className="h-2.5 w-2.5 rounded-full border border-ink" style={{ background: '#' + p.tint.toString(16).padStart(6, '0') }} aria-hidden="true" />
+                  {p.name}
+                  {p.id === st.pid && <span className="text-ink/50">(you)</span>}
+                  {p.bot && <span className="text-ink/50">bot</span>}
+                </li>
+              ))}
+            </ul>
+            {st.host ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-ink/70">You're the host. Bot pigs:</span>
+                {ONLINE_BOTS.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-pressed={st.bots === n}
+                    onClick={() => onBots?.(n)}
+                    className={`rounded-full border-2 border-ink px-2.5 py-0.5 text-[11px] font-extrabold uppercase ${st.bots === n ? 'bg-pig' : 'bg-white text-ink/70'}`}
+                  >
+                    {n === 0 ? 'None' : `+${n}`}
+                  </button>
+                ))}
+                <span className="text-xs font-bold text-ink/70">· press Defend the Farm when everyone's in</span>
+              </div>
+            ) : (
+              <p className="text-xs font-bold text-ink/70" role="status">
+                {humans.length} {humans.length === 1 ? 'pig' : 'pigs'} here · waiting for the host to start
+              </p>
+            )}
+          </>
+        )}
+      </section>
+    );
+  }
+  return (
+    <form
+      aria-label="Play online"
+      className="rise-in flex max-w-[560px] flex-wrap items-end gap-2 [animation-delay:170ms]"
+      onSubmit={(e) => {
+        e.preventDefault();
+        writePref('borpse.name', name);
+        online.onJoin(room, name);
+      }}
+    >
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Online name</span>
+        <input id="online-name" value={name} maxLength={16} onChange={(e) => setName(e.target.value)} className="w-36 rounded-lg border-2 border-ink bg-paper px-2 py-1 text-sm font-bold text-ink" />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Room code</span>
+        <input
+          id="online-room"
+          value={room}
+          maxLength={4}
+          placeholder="new"
+          onChange={(e) => setRoom(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+          className="w-24 rounded-lg border-2 border-ink bg-paper px-2 py-1 font-mono text-sm font-bold uppercase tracking-[0.2em] text-ink"
+        />
+      </label>
+      <button type="submit" className="btn bg-pig px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-ink">
+        {room.length === 4 ? 'Join room' : 'Host a room'}
+      </button>
+      {st?.state === 'closed' && st.error && (
+        <p className="w-full text-xs font-bold text-[#ffb3a6]" role="alert">
+          {st.error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export function TitleScreen({
   portraits,
   pad,
   touch = false,
   bots = 0,
   onBots,
+  online,
   onStart,
 }: {
   portraits: Record<string, string>;
@@ -92,8 +230,11 @@ export function TitleScreen({
   touch?: boolean;
   bots?: number;
   onBots?: (n: number) => void;
+  online?: OnlineProps;
   onStart: () => void;
 }) {
+  const inRoom = online?.status && (online.status.state === 'lobby' || online.status.state === 'connecting');
+  const waiting = inRoom && !online!.status!.host;
   const cast: { id: string; name: string; line: string; bg: string }[] = [
     { id: 'kenji', name: 'Kenji', line: 'You. A pig with a grudge.', bg: 'bg-pig' },
     { id: 'rickley', name: 'Rickley', line: 'Farmer. Trades truffles for grit.', bg: 'bg-[#ffe9b8]' },
@@ -119,8 +260,15 @@ export function TitleScreen({
         </header>
 
         <div className="rise-in flex flex-wrap items-center gap-4 [animation-delay:120ms]">
-          <button type="button" onClick={onStart} autoFocus data-pad-default className="btn bg-mustard px-7 py-3.5 font-display text-2xl leading-none text-ink">
-            DEFEND THE FARM
+          <button
+            type="button"
+            onClick={onStart}
+            autoFocus
+            data-pad-default
+            disabled={!!waiting || online?.status?.state === 'connecting'}
+            className="btn bg-mustard px-7 py-3.5 font-display text-2xl leading-none text-ink disabled:opacity-60"
+          >
+            {waiting ? 'WAITING FOR HOST' : 'DEFEND THE FARM'}
           </button>
           <div className="text-sm font-bold text-paper/80">
             <p>8 brutal courses · 5 kitchen enemies · permadeath hog squad</p>
@@ -134,7 +282,9 @@ export function TitleScreen({
           </div>
         </div>
 
-        {onBots && (
+        {online && <OnlinePanel online={online} onBots={onBots} />}
+
+        {onBots && !inRoom && (
           <fieldset className="rise-in flex flex-wrap items-center gap-2 [animation-delay:170ms]">
             <legend className="sr-only">Herd size</legend>
             <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Herd</span>
@@ -261,7 +411,11 @@ export function PauseScreen({
   onGraphics,
   onRestart,
   onReturnFarm,
+  restartLabel = 'Start over',
+  note,
 }: {
+  restartLabel?: string;
+  note?: string;
   muted: boolean;
   gfx: 'high' | 'medium' | 'low';
   pad?: PadLayout;
@@ -294,9 +448,10 @@ export function PauseScreen({
             Graphics: {GFX_LABEL[gfx]}
           </button>
           <button type="button" onClick={onRestart} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide">
-            Start over
+            {restartLabel}
           </button>
         </div>
+        {note && <p className="mt-3 text-sm font-bold text-ink/70">{note}</p>}
         {onReturnFarm && (
           <button type="button" onClick={onReturnFarm} className="btn mt-3 w-full bg-[#416744] px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-paper">Return to the farm with your recruits</button>
         )}

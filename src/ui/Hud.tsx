@@ -127,7 +127,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             <Portrait src={portraits.kenji} alt="Kenji the pig" className="h-8 w-8 min-[360px]:h-10 min-[360px]:w-10 sm:h-12 sm:w-12" />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
-                <h2 className="font-display text-sm leading-none sm:text-lg">KENJI</h2>
+                <h2 className="truncate font-display text-sm leading-none sm:text-lg">{(hud.party?.find((p) => p.you)?.name ?? 'Kenji').toUpperCase()}</h2>
                 <span className="font-mono text-[10px] font-medium tabular-nums sm:text-xs">
                   {hud.hp}/{hud.maxHp}
                 </span>
