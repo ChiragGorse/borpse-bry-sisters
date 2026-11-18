@@ -1,23 +1,15 @@
 import * as THREE from 'three';
 import { M, glow, box, cyl, cone, sph, part } from './models';
-import { signTexture, type Collider, type MapFeature } from './world';
+import { signTexture, type MapFeature } from './world';
+import type { Collider } from './layout';
 import { blobGeo as shrubGeo, buildGrass, groundMaterial, pineGeo, rockGeo as boulderGeo, waterMaterial, worldCircle, worldUV } from './nature';
-import { GUPPY_END } from './guppy';
+import { GUPPY_END } from './layout';
 
 const PI = Math.PI;
 const TAU = PI * 2;
 
-export const FOREST_BOUND = 74;
-export const FOREST_EXIT = { x: 0, z: 65 };
-export const FOREST_START = { x: 0, z: 54 };
-export const FOREST_HOMES = [
-  { x: -11, z: 32, name: 'Fern Hollow', r: 10 },
-  { x: -39, z: 13, name: 'The Old Camp', r: 11 },
-  { x: 35, z: 22, name: 'Acorn Grove', r: 11 },
-  { x: -41, z: -37, name: 'Boar Ridge', r: 12 },
-  { x: 4, z: -51, name: 'Deepwood', r: 12 },
-  { x: 45, z: -38, name: 'Mossy Hollow', r: 11 },
-];
+export { FOREST_BOUND, FOREST_EXIT, FOREST_START, FOREST_HOMES } from './layout';
+import { FOREST_BOUND, FOREST_EXIT, FOREST_HOMES } from './layout';
 
 export interface ForestWorld {
   group: THREE.Group;

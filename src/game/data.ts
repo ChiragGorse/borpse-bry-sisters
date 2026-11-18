@@ -487,6 +487,8 @@ export interface HudState {
   allies: number;
   alliesMax: number;
   fallen: number;
+  /** Everyone in the herd when more than one pig is playing (null in single-player). */
+  party: { id: number; name: string; hp: number; maxHp: number; tint: string; down: boolean; you: boolean }[] | null;
   hunt: {
     caught: number;
     total: number;

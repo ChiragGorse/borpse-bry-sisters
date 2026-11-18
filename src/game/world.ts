@@ -5,41 +5,8 @@ import { blobGeo, buildGrass, groundMaterial, pineGeo, planked, rockGeo, shingle
 const PI = Math.PI;
 const TAU = PI * 2;
 
-export const BOUND = 54;
-
-export const SPOT = {
-  rickley: { x: -20, z: -22 },
-  kingger: { x: 33, z: 21 },
-  trout: { x: -38.7, z: 38.5 },
-  troutDock: { x: -34.2, z: 38.5 },
-  dummy: { x: -24.5, z: 31.2 },
-  lake: { x: -41, z: 41, r: 11 },
-  bell: { x: 0, z: -6 },
-  mud: { x: 14, z: 8, r: 6 },
-  gate: { x: 0, z: 56 },
-  turret: { x: 4, z: 16 },
-  start: { x: 0, z: 6 },
-  hunt: { x: 48, z: 41, r: 5 },
-};
-
-/** True when a point stands on the wooden pier jutting out into Trout Lake. */
-export function isOnLakeDock(x: number, z: number): boolean {
-  return x >= -35.9 && x <= -27.2 && z >= 36.7 && z <= 40.3;
-}
-
-export interface Collider {
-  kind: 'c' | 'b';
-  x: number;
-  z: number;
-  r: number;
-  hx: number;
-  hz: number;
-  /** Height, used so the camera can see over low obstacles. */
-  h: number;
-  enabled: boolean;
-  /** Water collider bypassed while standing on Trout Lake's dock. */
-  lakeWater?: boolean;
-}
+export { BOUND, SPOT, isOnLakeDock, type Collider } from './layout';
+import { SPOT, isOnLakeDock, type Collider } from './layout';
 
 export interface Edible {
   id: string;

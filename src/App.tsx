@@ -25,7 +25,9 @@ export default function App() {
     const boot = () => {
       if (cancelled || !mount.current) return;
       try {
-        g = new Game(mount.current, setHud);
+        // ?bots=N fills the herd with N stand-in pigs for trying out multiplayer locally
+        const bots = Number(new URLSearchParams(window.location.search).get('bots')) || 0;
+        g = new Game(mount.current, setHud, { bots });
         g.setGamepadMenu((command) => root.current ? navigatePadMenu(root.current, command) : false);
         game.current = g;
         setPortraits(g.portraits);

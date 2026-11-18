@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { box, cyl, glow, M, makeHpBar, part, sph, torus, unique, type EnemyModel } from './models';
 
-export const GUPPY_END = { x: -60, z: -4, r: 8.5, name: "Guppy's End" };
-export const GUPPY_HP = 105;
-export const GUPPY_SWING = { radius: 2.6, offset: 1.2, windup: 0.62 };
+export { GUPPY_END, GUPPY_HP, GUPPY_SWING } from './layout';
 
 export interface GuppyModel extends EnemyModel {
   arms: [THREE.Group, THREE.Group];

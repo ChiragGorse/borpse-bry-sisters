@@ -169,6 +169,21 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
               {hud.muddy && <span className="rounded-full border-2 border-ink bg-[#9a6a4e] px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-paper">Mud −15%</span>}
             </div>
           </div>
+          {hud.party && (
+            <ul aria-label="The herd" className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
+              {hud.party
+                .filter((p) => !p.you)
+                .map((p) => (
+                  <li key={p.id} className={`flex min-w-0 items-center gap-1 ${p.down ? 'opacity-50' : ''}`}>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-ink" style={{ background: p.tint }} aria-hidden="true" />
+                    <span className="truncate text-[10px] font-extrabold uppercase leading-none tracking-wide">{p.down ? `${p.name} · down` : p.name}</span>
+                    <span className="ml-auto h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-ink/25" aria-label={`${p.hp} of ${p.maxHp} health`}>
+                      <span className="block h-full rounded-full bg-[#e8506a]" style={{ width: `${Math.max(0, Math.min(100, (p.hp / Math.max(1, p.maxHp)) * 100))}%` }} />
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
           {hud.focus && (
             <div className="pop-in mt-2 rounded-lg border-2 border-ink bg-[#7df9ff] px-2.5 py-1 text-center text-[10px] font-extrabold uppercase tracking-wide">
               Perfect dodge · focus +35% damage
