@@ -73,7 +73,27 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
 
 /* ───────────────────────── title ───────────────────────── */
 
-export function TitleScreen({ portraits, pad, touch = false, onStart }: { portraits: Record<string, string>; pad?: PadLayout; touch?: boolean; onStart: () => void }) {
+const HERD_SIZES = [
+  { bots: 0, label: 'Solo' },
+  { bots: 3, label: '+3 bots' },
+  { bots: 7, label: '+7 bots' },
+];
+
+export function TitleScreen({
+  portraits,
+  pad,
+  touch = false,
+  bots = 0,
+  onBots,
+  onStart,
+}: {
+  portraits: Record<string, string>;
+  pad?: PadLayout;
+  touch?: boolean;
+  bots?: number;
+  onBots?: (n: number) => void;
+  onStart: () => void;
+}) {
   const cast: { id: string; name: string; line: string; bg: string }[] = [
     { id: 'kenji', name: 'Kenji', line: 'You. A pig with a grudge.', bg: 'bg-pig' },
     { id: 'rickley', name: 'Rickley', line: 'Farmer. Trades truffles for grit.', bg: 'bg-[#ffe9b8]' },
@@ -113,6 +133,25 @@ export function TitleScreen({ portraits, pad, touch = false, onStart }: { portra
             )}
           </div>
         </div>
+
+        {onBots && (
+          <fieldset className="rise-in flex flex-wrap items-center gap-2 [animation-delay:170ms]">
+            <legend className="sr-only">Herd size</legend>
+            <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Herd</span>
+            {HERD_SIZES.map((h) => (
+              <button
+                key={h.bots}
+                type="button"
+                aria-pressed={bots === h.bots}
+                onClick={() => onBots(h.bots)}
+                className={`rounded-full border-2 border-ink px-3 py-1 text-xs font-extrabold uppercase tracking-wide ${bots === h.bots ? 'bg-pig text-ink' : 'bg-paper/85 text-ink/70'}`}
+              >
+                {h.label}
+              </button>
+            ))}
+            <span className="text-xs font-medium text-paper/75">Bot pigs fight beside you · multiplayer test</span>
+          </fieldset>
+        )}
 
         <ul className="rise-in grid max-w-[740px] grid-cols-2 gap-2 [animation-delay:220ms] sm:grid-cols-5" aria-label="Cast">
           {cast.map((c) => (

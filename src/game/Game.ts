@@ -327,15 +327,7 @@ export class Game {
       },
     });
     this.localId = this.sim.addPlayer('Kenji')!.id;
-    const bots = clamp(Math.floor(opts.bots ?? 0), 0, 7);
-    if (bots > 0) {
-      this.brain = new BotBrain();
-      for (let i = 0; i < bots; i++) {
-        const p = this.sim.addPlayer(`Bot ${i + 1}`);
-        if (p) this.botIds.push(p.id);
-      }
-    }
-    this.syncPlayers(0);
+    this.setBots(opts.bots ?? 0);
 
     this.openingPigs = [makeKenji(0xf0b4a7, true), makeKenji(0xe99b8f, true), makeKenji(0xcfa58f, true)];
     for (const pig of this.openingPigs) {
@@ -709,6 +701,19 @@ export class Game {
   }
 
   /* ───────────────────────── public API ───────────────────────── */
+
+  /** Sets how many stand-in bot pigs join the herd (0-7). Takes effect from the title screen. */
+  setBots(n: number) {
+    const want = clamp(Math.floor(n) || 0, 0, 7);
+    for (const id of this.botIds) this.sim.removePlayer(id);
+    this.botIds = [];
+    this.brain = want > 0 ? new BotBrain() : null;
+    for (let i = 0; i < want; i++) {
+      const p = this.sim.addPlayer(`Bot ${i + 1}`);
+      if (p) this.botIds.push(p.id);
+    }
+    this.syncPlayers(0);
+  }
 
   setMinimap(c: HTMLCanvasElement | null) {
     this.minimap = c;

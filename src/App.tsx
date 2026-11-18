@@ -8,6 +8,12 @@ import { navigatePadMenu } from './ui/gamepadMenu';
 import { MobileControls } from './ui/MobileControls';
 import { useTouchDevice } from './ui/useTouchDevice';
 
+const initialBots = (() => {
+  const q = Number(new URLSearchParams(window.location.search).get('bots'));
+  const h = /^#bots-(\d)$/.exec(window.location.hash);
+  return Math.min(7, Math.max(0, q || (h ? Number(h[1]) : 0)));
+})();
+
 export default function App() {
   const root = useRef<HTMLDivElement>(null);
   const mount = useRef<HTMLDivElement>(null);
@@ -15,6 +21,12 @@ export default function App() {
   const [hud, setHud] = useState<HudState | null>(null);
   const [portraits, setPortraits] = useState<Record<string, string>>({});
   const [error, setError] = useState(false);
+  // ?bots=N or #bots-N fills the herd with N stand-in pigs for trying out multiplayer locally
+  const [bots, setBotsState] = useState(initialBots);
+  const setBots = useCallback((n: number) => {
+    setBotsState(n);
+    game.current?.setBots(n);
+  }, []);
   const touch = useTouchDevice();
   const getGame = useCallback(() => game.current, []);
   const interact = useCallback(() => game.current?.touchPress('KeyE'), []);
@@ -25,9 +37,7 @@ export default function App() {
     const boot = () => {
       if (cancelled || !mount.current) return;
       try {
-        // ?bots=N fills the herd with N stand-in pigs for trying out multiplayer locally
-        const bots = Number(new URLSearchParams(window.location.search).get('bots')) || 0;
-        g = new Game(mount.current, setHud, { bots });
+        g = new Game(mount.current, setHud, { bots: initialBots });
         g.setGamepadMenu((command) => root.current ? navigatePadMenu(root.current, command) : false);
         game.current = g;
         setPortraits(g.portraits);
@@ -100,7 +110,7 @@ export default function App() {
           onSkip={() => game.current?.finishOpening()}
         />
       )}
-      {hud && screen === 'title' && <TitleScreen portraits={portraits} pad={hud.gamepad?.layout} touch={touch} onStart={start} />}
+      {hud && screen === 'title' && <TitleScreen portraits={portraits} pad={hud.gamepad?.layout} touch={touch} bots={bots} onBots={setBots} onStart={start} />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}
       {hud && screen === 'paused' && (
         <PauseScreen
