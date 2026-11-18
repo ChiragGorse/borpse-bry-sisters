@@ -116,7 +116,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
   const firstBreak = !inForest && hud.mode === 'intermission' && hud.course === 0;
 
   return (
-    <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-200 ${dim ? 'opacity-30' : 'opacity-100'}`}>
+    <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-200 ${dim ? 'opacity-30' : 'opacity-100'} ${touch ? 'hud-touch' : ''}`}>
       {low && <div className="low-hp absolute inset-0" />}
       {hud.hurtTick > 0 && <div key={hud.hurtTick} className="hurt-flash absolute inset-0" />}
 
@@ -186,7 +186,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
         {/* Boss / objective */}
         <div className={`col-span-2 col-start-1 row-start-2 justify-center sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1 ${
           hud.banner && !boss.active && !guppy ? 'hidden sm:flex' : 'flex'
-        } ${touch ? 'landscape:px-[200px] lg:landscape:px-0' : ''}`}>
+        } ${touch ? 'landscape:px-[150px] lg:landscape:px-0' : ''}`}>
           {boss.active ? (
             <section aria-label="Allen B. Hwang status" className="sticker w-full max-w-[580px] px-3 py-2.5">
               <div className="flex items-center gap-3">
@@ -431,9 +431,9 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
       )}
 
       {/* subtitle + prompt */}
-      <div className={`absolute inset-x-0 flex flex-col items-center gap-2.5 px-4 ${touch ? 'portrait:bottom-[260px] landscape:bottom-2 landscape:px-[200px]' : 'bottom-5'}`}>
+      <div className={`absolute inset-x-0 flex flex-col items-center gap-2.5 px-4 ${touch ? 'portrait:bottom-[170px] landscape:bottom-1 landscape:px-[150px]' : 'bottom-5'}`}>
         {hud.subtitle && (
-          <p key={hud.subtitle.text} className="pop-in flex max-w-[640px] items-start gap-2.5 rounded-2xl border-[3px] border-ink bg-paper/95 px-3.5 py-2 shadow-[4px_4px_0_var(--color-ink)]" role="status">
+          <p key={hud.subtitle.text} className="hud-zoom hud-fade pop-in flex max-w-[640px] items-start gap-2.5 rounded-2xl border-[3px] border-ink bg-paper/95 px-3.5 py-2 shadow-[4px_4px_0_var(--color-ink)]" role="status">
             <span className={`mt-0.5 shrink-0 rounded-md border-2 border-ink px-2 py-0.5 font-display text-xs leading-tight ${SPEAKER[hud.subtitle.who] ?? 'bg-white'}`}>{hud.subtitle.who.toUpperCase()}</span>
             <span className="text-[15px] font-bold leading-snug">{hud.subtitle.text}</span>
           </p>
@@ -445,7 +445,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
               navigator.vibrate?.(8);
               onInteract?.();
             }}
-            className="bob pointer-events-auto flex touch-none items-center gap-2 rounded-full border-[3px] border-ink bg-mustard px-4 py-2 text-sm font-extrabold shadow-[4px_4px_0_var(--color-ink)]"
+            className="hud-zoom bob pointer-events-auto flex touch-none items-center gap-2 rounded-full border-[3px] border-ink bg-mustard px-4 py-2 text-sm font-extrabold shadow-[4px_4px_0_var(--color-ink)]"
           >
             <span className="rounded-md border-2 border-ink bg-white px-1.5 py-0.5 font-mono text-[10px] leading-none">TAP</span>
             {promptText}

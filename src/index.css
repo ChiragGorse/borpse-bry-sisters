@@ -402,3 +402,20 @@ body {
     animation: none;
   }
 }
+
+/* ───────── touch devices: compact, see-through HUD so the farm stays visible around your thumbs ───────── */
+.hud-touch .sticker,
+.hud-touch .hud-zoom {
+  zoom: 0.6;
+}
+.hud-touch .sticker {
+  background: color-mix(in srgb, var(--color-paper) 62%, transparent);
+  border-color: color-mix(in srgb, var(--color-ink) 70%, transparent);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-ink) 45%, transparent);
+}
+.hud-touch .hud-fade {
+  background-color: color-mix(in srgb, var(--color-paper) 70%, transparent);
+}
+.hud-touch .banner {
+  zoom: 0.55;
+}

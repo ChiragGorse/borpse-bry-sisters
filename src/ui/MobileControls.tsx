@@ -14,8 +14,15 @@ import type { HudState } from '../game/data';
  * Buttons send the same key codes the keyboard does, so the game logic is shared with desktop.
  */
 
-const STICK_RADIUS = 56; // px the knob can travel from the base centre
+const STICK_RADIUS = 40; // px the knob can travel from the base centre
 const DEADZONE = 0.12;
+// Button layout (px). Kept small so the farm stays visible on phone screens.
+const HB_SIZE = 54; // headbutt
+const HB_EDGE = 16; // headbutt distance from the bottom-right corner
+const RING_SIZE = 40; // dash / roll / jump
+const RING_R = 58;
+const EXTRA_SIZE = 34; // unlockables + listen
+const EXTRA_R = 98;
 const LOOK_SPEED = 1.8; // touch pixels → "mouse pixels"; a finger drag needs more turn per pixel than a mouse
 
 interface Props {
@@ -49,7 +56,7 @@ export function MobileControls({ game, hud }: Props) {
     };
     const resetStick = () => {
       const h = el.getBoundingClientRect().height || window.innerHeight;
-      placeStick(104, h - 104, 0, 0, false);
+      placeStick(74, h - 70, 0, 0, false);
     };
     const local = (t: Touch) => {
       const r = el.getBoundingClientRect();
@@ -151,22 +158,22 @@ export function MobileControls({ game, hud }: Props) {
       {/* joystick */}
       <div ref={base} className="pointer-events-none absolute left-0 top-0 rounded-full p-[14px] transition-opacity duration-150" aria-hidden="true">
         <div
-          className="flex items-center justify-center rounded-full border-[3px] border-ink/70 bg-paper/25 backdrop-blur-[2px]"
+          className="flex items-center justify-center rounded-full border-2 border-ink/50 bg-paper/15"
           style={{ width: STICK_RADIUS * 2, height: STICK_RADIUS * 2 }}
         >
-          <div ref={knob} className="h-14 w-14 rounded-full border-[3px] border-ink bg-pig shadow-[0_3px_0_var(--color-ink)]" />
+          <div ref={knob} className="h-9 w-9 rounded-full border-2 border-ink/80 bg-pig/80" />
         </div>
       </div>
 
       {/* pause */}
       <TouchButton
         label="Pause"
-        size={44}
+        size={30}
         style={{ left: 'calc(env(safe-area-inset-left) + 10px)', top: '42%' }}
-        className="bg-paper"
+        className="bg-paper/60"
         onPress={() => game()?.pause()}
       >
-        <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true">
           <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
           <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
         </svg>
@@ -180,8 +187,8 @@ export function MobileControls({ game, hud }: Props) {
 
 /** Position on an arc around the headbutt button: `a` degrees from "left", sweeping up; `r` px out. */
 function arc(a: number, r: number, size: number) {
-  const anchorRight = 30 + 40; // centre of the 80px headbutt button
-  const anchorBottom = 30 + 40;
+  const anchorRight = HB_EDGE + HB_SIZE / 2; // centre of the headbutt button
+  const anchorBottom = HB_EDGE + HB_SIZE / 2;
   const rad = (a * Math.PI) / 180;
   return {
     right: `calc(env(safe-area-inset-right) + ${anchorRight + Math.cos(rad) * r - size / 2}px)`,
@@ -195,73 +202,73 @@ function ActionCluster({ game, hud, canListen }: { game: () => Game | null; hud:
 
   // Unlockables fill the outer ring in order, so a new ability pops into the next free slot.
   const extras: { code: string; label: string; cd: number; className: string; icon: ReactNode }[] = [];
-  if (hud.zapUnlocked) extras.push({ code: 'KeyQ', label: 'Zap', cd: hud.zapCd, className: 'bg-lab', icon: '⚡' });
-  if (hud.whipUnlocked) extras.push({ code: 'KeyC', label: 'Whip', cd: hud.whipCd, className: 'bg-[#7fc8cf]', icon: '〰' });
-  if (hud.squealUnlocked) extras.push({ code: 'KeyF', label: 'Squeal', cd: hud.squealCd, className: 'bg-[#ffb3c7]', icon: '📢' });
+  if (hud.zapUnlocked) extras.push({ code: 'KeyQ', label: 'Zap', cd: hud.zapCd, className: 'bg-lab/75', icon: '⚡' });
+  if (hud.whipUnlocked) extras.push({ code: 'KeyC', label: 'Whip', cd: hud.whipCd, className: 'bg-[#7fc8cf]/75', icon: '〰' });
+  if (hud.squealUnlocked) extras.push({ code: 'KeyF', label: 'Squeal', cd: hud.squealCd, className: 'bg-[#ffb3c7]/75', icon: '📢' });
   if (canListen)
-    extras.push({ code: 'KeyR', label: 'Listen', cd: hud.hunt?.listenCd ?? 0, className: 'bg-[#a9d18e]', icon: '👂' });
+    extras.push({ code: 'KeyR', label: 'Listen', cd: hud.hunt?.listenCd ?? 0, className: 'bg-[#a9d18e]/75', icon: '👂' });
   const outer = [8, 38, 68, 98];
 
   return (
     <>
       <TouchButton
         label={hud.cycloneUnlocked ? 'Headbutt combo' : 'Headbutt'}
-        size={80}
-        style={{ right: 'calc(env(safe-area-inset-right) + 30px)', bottom: 'calc(env(safe-area-inset-bottom) + 30px)' }}
-        className="bg-mustard"
+        size={HB_SIZE}
+        style={{ right: `calc(env(safe-area-inset-right) + ${HB_EDGE}px)`, bottom: `calc(env(safe-area-inset-bottom) + ${HB_EDGE}px)` }}
+        className="bg-mustard/75"
         onPress={press('KeyJ')}
         onRelease={release('KeyJ')}
       >
-        <span className="font-display text-sm leading-none">BUTT</span>
+        <span className="font-display text-[11px] leading-none">BUTT</span>
       </TouchButton>
       <TouchButton
         label={hud.rushReady ? 'River Rush' : 'Charge'}
-        size={60}
-        style={arc(0, 92, 60)}
-        className={hud.rushReady ? 'bg-[#7df9ff]' : 'bg-barn text-paper'}
+        size={RING_SIZE}
+        style={arc(0, RING_R, RING_SIZE)}
+        className={hud.rushReady ? 'bg-[#7df9ff]/80' : 'bg-barn/75 text-paper'}
         cd={hud.rushReady ? 0 : hud.chargeCd}
         onPress={press('KeyK')}
         onRelease={release('KeyK')}
       >
-        <span className="font-display text-[11px] leading-none">{hud.rushReady ? 'RUSH' : 'DASH'}</span>
+        <span className="font-display text-[8.5px] leading-none">{hud.rushReady ? 'RUSH' : 'DASH'}</span>
       </TouchButton>
       <TouchButton
         label="Dodge roll"
-        size={60}
-        style={arc(45, 92, 60)}
-        className="bg-white"
+        size={RING_SIZE}
+        style={arc(45, RING_R, RING_SIZE)}
+        className="bg-white/60"
         cd={hud.stam < 25 ? 1 : 0}
         onPress={press('ShiftLeft')}
         onRelease={release('ShiftLeft')}
       >
-        <span className="font-display text-[11px] leading-none">ROLL</span>
+        <span className="font-display text-[8.5px] leading-none">ROLL</span>
       </TouchButton>
       <TouchButton
         label="Jump"
-        size={60}
-        style={arc(90, 92, 60)}
-        className="bg-paper"
+        size={RING_SIZE}
+        style={arc(90, RING_R, RING_SIZE)}
+        className="bg-paper/60"
         onPress={press('Space')}
         onRelease={release('Space')}
       >
-        <span className="font-display text-[11px] leading-none">JUMP</span>
+        <span className="font-display text-[8.5px] leading-none">JUMP</span>
       </TouchButton>
       {extras.map((x, i) => (
         <TouchButton
           key={x.code}
           label={x.label}
-          size={50}
-          style={arc(outer[i], 150, 50)}
+          size={EXTRA_SIZE}
+          style={arc(outer[i], EXTRA_R, EXTRA_SIZE)}
           className={`${x.className} pop-in`}
           cd={x.cd}
           onPress={press(x.code)}
           onRelease={release(x.code)}
         >
           <span className="flex flex-col items-center leading-none">
-            <span className="text-base leading-none" aria-hidden="true">
+            <span className="text-[11px] leading-none" aria-hidden="true">
               {x.icon}
             </span>
-            <span className="mt-0.5 text-[8px] font-extrabold uppercase">{x.label}</span>
+            <span className="mt-px text-[6.5px] font-extrabold uppercase">{x.label}</span>
           </span>
         </TouchButton>
       ))}
@@ -294,7 +301,7 @@ function TouchButton({
     <button
       type="button"
       aria-label={label}
-      className={`absolute flex touch-none select-none items-center justify-center overflow-hidden rounded-full border-[3px] border-ink text-ink shadow-[0_4px_0_var(--color-ink)] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-ink)] ${className}`}
+      className={`absolute flex touch-none select-none items-center justify-center overflow-hidden rounded-full border-2 border-ink/80 text-ink shadow-[0_2px_0_rgb(42_26_18/0.6)] active:translate-y-[2px] active:shadow-none ${className}`}
       style={{ ...style, width: size, height: size }}
       onTouchStart={(e) => {
         const t = e.changedTouches[0];
