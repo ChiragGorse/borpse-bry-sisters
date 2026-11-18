@@ -73,7 +73,7 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
 
 /* ───────────────────────── title ───────────────────────── */
 
-export function TitleScreen({ portraits, pad, onStart }: { portraits: Record<string, string>; pad?: PadLayout; onStart: () => void }) {
+export function TitleScreen({ portraits, pad, touch = false, onStart }: { portraits: Record<string, string>; pad?: PadLayout; touch?: boolean; onStart: () => void }) {
   const cast: { id: string; name: string; line: string; bg: string }[] = [
     { id: 'kenji', name: 'Kenji', line: 'You. A pig with a grudge.', bg: 'bg-pig' },
     { id: 'rickley', name: 'Rickley', line: 'Farmer. Trades truffles for grit.', bg: 'bg-[#ffe9b8]' },
@@ -106,6 +106,8 @@ export function TitleScreen({ portraits, pad, onStart }: { portraits: Record<str
             <p>8 brutal courses · 5 kitchen enemies · permadeath hog squad</p>
             {pad ? (
               <p className="mt-1 flex items-center gap-2 text-[#ffe6a0]" role="status"><Key>{padLabel(pad, 'south')}</Key> Start with controller</p>
+            ) : touch ? (
+              <p className="mt-1 text-xs font-medium text-paper/75">Left thumb moves · drag the right side to look · tap the buttons to fight</p>
             ) : (
               <p className="mt-1 text-xs font-medium text-paper/75">Keyboard + mouse, or press a button on your controller</p>
             )}

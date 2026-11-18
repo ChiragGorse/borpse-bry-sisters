@@ -98,9 +98,12 @@ interface HudProps {
   portraits: Record<string, string>;
   minimapRef: (el: HTMLCanvasElement | null) => void;
   dim: boolean;
+  /** Phone/tablet: on-screen controls are showing, so hide keyboard hints and make the prompt tappable. */
+  touch?: boolean;
+  onInteract?: () => void;
 }
 
-export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
+export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract }: HudProps) {
   const boss = hud.boss;
   const shield = boss.shield;
   const guppy = hud.hunt?.guppy;
@@ -133,7 +136,7 @@ export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
               <Bar value={hud.stam} max={hud.maxStam} label="Stamina" fill="bg-mustard" className="mt-1 h-2.5" />
             </div>
           </div>
-          <div className="mt-2 grid grid-cols-3 gap-1 sm:flex">
+          <div className={`mt-2 grid-cols-3 gap-1 ${touch ? 'hidden' : 'grid sm:flex'}`}>
             <Ability k={pad ? padActionLabel(pad, 'headbutt') : 'LMB'} name={hud.cycloneUnlocked ? 'Butt×4' : 'Butt'} />
             <Ability k={pad ? padActionLabel(pad, 'charge') : 'RMB'} name={hud.rushReady ? 'RUSH!' : 'Charge'} cd={hud.chargeCd} glow={hud.rushReady} />
             <Ability k={pad ? padActionLabel(pad, 'roll') : 'SHIFT'} name="Roll" cd={hud.stam < 25 ? 1 : 0} />
@@ -183,7 +186,7 @@ export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
         {/* Boss / objective */}
         <div className={`col-span-2 col-start-1 row-start-2 justify-center sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1 ${
           hud.banner && !boss.active && !guppy ? 'hidden sm:flex' : 'flex'
-        }`}>
+        } ${touch ? 'landscape:px-[200px] lg:landscape:px-0' : ''}`}>
           {boss.active ? (
             <section aria-label="Allen B. Hwang status" className="sticker w-full max-w-[580px] px-3 py-2.5">
               <div className="flex items-center gap-3">
@@ -277,7 +280,7 @@ export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
               <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-barn">
                 Intermission · next up course {hud.course + 1}: {hud.courseName}
               </p>
-              <p className="mt-1 text-sm font-bold leading-snug">{hud.objective}</p>
+              <p className={`mt-1 font-bold leading-snug ${touch ? 'text-xs' : 'text-sm'}`}>{hud.objective}</p>
             </section>
           )}
         </div>
@@ -375,7 +378,7 @@ export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
       )}
 
       {/* controls reminder for the first intermission */}
-      {firstBreak && (
+      {firstBreak && !touch && (
         <aside aria-label="Controls" className="sticker absolute bottom-4 left-4 hidden w-[250px] p-3 lg:block">
           <h2 className="font-display text-sm leading-none">HOW TO PIG</h2>
           <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2.5 gap-y-1.5 text-xs font-bold">
@@ -411,7 +414,7 @@ export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
         </aside>
       )}
 
-      {inForest && (
+      {inForest && !touch && (
         <aside aria-label="Forest controls" className="sticker absolute bottom-4 left-4 hidden w-[235px] p-3 lg:block">
           <h2 className="font-display text-sm text-[#34563b]">FIND YOUR HERD</h2>
           <p className="mt-1.5 text-xs font-bold leading-relaxed text-ink/75">Headbutt or charge to recruit a wild hog. Follow the west trail past the Old Camp to find Path Guppy.</p>
@@ -421,21 +424,34 @@ export function Hud({ hud, portraits, minimapRef, dim }: HudProps) {
         </aside>
       )}
 
-      {!pad && !hud.locked && hud.screen === 'play' && (
+      {!pad && !touch && !hud.locked && hud.screen === 'play' && (
         <p className="absolute bottom-4 right-4 hidden max-w-[240px] rounded-xl border-[2.5px] border-ink bg-paper/95 px-3 py-2 text-xs font-bold leading-snug sm:block">
           Click the game to steer the camera with your mouse. <Key>Esc</Key> pauses.
         </p>
       )}
 
       {/* subtitle + prompt */}
-      <div className="absolute inset-x-0 bottom-5 flex flex-col items-center gap-2.5 px-4">
+      <div className={`absolute inset-x-0 flex flex-col items-center gap-2.5 px-4 ${touch ? 'portrait:bottom-[260px] landscape:bottom-2 landscape:px-[200px]' : 'bottom-5'}`}>
         {hud.subtitle && (
           <p key={hud.subtitle.text} className="pop-in flex max-w-[640px] items-start gap-2.5 rounded-2xl border-[3px] border-ink bg-paper/95 px-3.5 py-2 shadow-[4px_4px_0_var(--color-ink)]" role="status">
             <span className={`mt-0.5 shrink-0 rounded-md border-2 border-ink px-2 py-0.5 font-display text-xs leading-tight ${SPEAKER[hud.subtitle.who] ?? 'bg-white'}`}>{hud.subtitle.who.toUpperCase()}</span>
             <span className="text-[15px] font-bold leading-snug">{hud.subtitle.text}</span>
           </p>
         )}
-        {hud.prompt && hud.screen === 'play' && (
+        {hud.prompt && hud.screen === 'play' && touch && (
+          <button
+            type="button"
+            onTouchStart={() => {
+              navigator.vibrate?.(8);
+              onInteract?.();
+            }}
+            className="bob pointer-events-auto flex touch-none items-center gap-2 rounded-full border-[3px] border-ink bg-mustard px-4 py-2 text-sm font-extrabold shadow-[4px_4px_0_var(--color-ink)]"
+          >
+            <span className="rounded-md border-2 border-ink bg-white px-1.5 py-0.5 font-mono text-[10px] leading-none">TAP</span>
+            {promptText}
+          </button>
+        )}
+        {hud.prompt && hud.screen === 'play' && !touch && (
           <p className="bob flex items-center gap-2 rounded-full border-[3px] border-ink bg-mustard px-4 py-1.5 text-sm font-extrabold shadow-[4px_4px_0_var(--color-ink)]">
             <Key>{promptKey === 'E' ? interactKey : promptKey}</Key>
             {promptText}

@@ -334,6 +334,9 @@ export class Game {
   private pressed = new Set<string>();
   private mdx = 0;
   private mdy = 0;
+  /** Analog stick from the on-screen touch joystick (x = right, y = forward), each in [-1, 1]. */
+  private touchMoveX = 0;
+  private touchMoveY = 0;
   private locked = false;
   private gamepad = new GamepadInput();
   private padMenuRepeat = new PadMenuRepeat();
@@ -816,6 +819,7 @@ export class Game {
   private onBlur = () => {
     this.keys.clear();
     this.pressed.clear();
+    this.touchMoveX = this.touchMoveY = 0;
     this.padFrame = null;
     this.padMenuRepeat.reset();
     this.gamepad.suspend();
@@ -958,6 +962,40 @@ export class Game {
 
   useKeyboard() {
     this.switchToKeyboard();
+  }
+
+  /* ───────────── touch controls (driven by ui/MobileControls) ───────────── */
+
+  /** Set the on-screen joystick vector: x = strafe right, y = forward, magnitude ≤ 1. */
+  setTouchMove(x: number, y: number) {
+    const m = Math.hypot(x, y);
+    const s = m > 1 ? 1 / m : 1;
+    this.touchMoveX = x * s;
+    this.touchMoveY = y * s;
+  }
+
+  /** Camera drag from a touch, in screen pixels (same sign convention as mouse movement). */
+  touchLook(dx: number, dy: number) {
+    if (this.screen !== 'play' || this.opening) return;
+    this.mdx += dx;
+    this.mdy += dy;
+    if (Math.abs(dx) > 1.5) this.autoYaw = null;
+  }
+
+  /** Press an action as if its keyboard key went down (e.g. 'KeyJ' for headbutt). */
+  touchPress(code: string) {
+    if (this.screen !== 'play') return;
+    this.sfx.unlock();
+    if (this.opening) {
+      this.advanceOpening();
+      return;
+    }
+    this.keys.add(code);
+    this.pressed.add(code);
+  }
+
+  touchRelease(code: string) {
+    this.keys.delete(code);
   }
 
   /** Pause-menu graphics switch: Cinematic → Balanced → Fast. */
@@ -1140,6 +1178,7 @@ export class Game {
     this.screen = 'paused';
     this.keys.clear();
     this.pressed.clear();
+    this.touchMoveX = this.touchMoveY = 0;
     this.unlock();
     this.emit();
   }
@@ -2793,8 +2832,11 @@ export class Game {
 
     if (k.action !== 'dead') {
       const pad = this.padActive ? this.padFrame : null;
-      const ix = pad ? pad.moveX : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
-      const iz = pad ? -pad.moveY : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+      const kx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+      const kz = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+      const useTouch = !kx && !kz && (this.touchMoveX !== 0 || this.touchMoveY !== 0);
+      const ix = pad ? pad.moveX : useTouch ? this.touchMoveX : kx;
+      const iz = pad ? -pad.moveY : useTouch ? this.touchMoveY : kz;
       const fx = -Math.sin(this.yaw);
       const fz = -Math.cos(this.yaw);
       const rx = Math.cos(this.yaw);

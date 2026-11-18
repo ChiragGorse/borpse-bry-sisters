@@ -5,6 +5,8 @@ import { Hud } from './ui/Hud';
 import { Shop } from './ui/Shop';
 import { GameOverScreen, OpeningCutscene, PauseScreen, TitleScreen, VictoryScreen } from './ui/Screens';
 import { navigatePadMenu } from './ui/gamepadMenu';
+import { MobileControls } from './ui/MobileControls';
+import { useTouchDevice } from './ui/useTouchDevice';
 
 export default function App() {
   const root = useRef<HTMLDivElement>(null);
@@ -13,6 +15,9 @@ export default function App() {
   const [hud, setHud] = useState<HudState | null>(null);
   const [portraits, setPortraits] = useState<Record<string, string>>({});
   const [error, setError] = useState(false);
+  const touch = useTouchDevice();
+  const getGame = useCallback(() => game.current, []);
+  const interact = useCallback(() => game.current?.touchPress('KeyE'), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,11 +56,13 @@ export default function App() {
 
   const screen = hud?.screen;
   const showHud = hud && !hud.opening && (screen === 'play' || screen === 'shop' || screen === 'paused');
+  // On-screen controls only on phones/tablets, and only while actually playing (not in menus or cutscenes).
+  const showTouch = touch && hud && !hud.opening && screen === 'play' && !hud.gamepad?.active;
 
   return (
     <div
       ref={root}
-      data-input={hud?.gamepad?.active ? 'gamepad' : 'keyboard'}
+      data-input={hud?.gamepad?.active ? 'gamepad' : touch ? 'touch' : 'keyboard'}
       onPointerDownCapture={() => game.current?.useKeyboard()}
       className="relative h-[100dvh] w-screen overflow-hidden bg-[#1b120d]"
     >
@@ -79,7 +86,10 @@ export default function App() {
         </div>
       )}
 
-      {hud && showHud && <Hud hud={hud} portraits={portraits} minimapRef={minimapRef} dim={screen !== 'play'} />}
+      {hud && showTouch && <MobileControls game={getGame} hud={hud} />}
+      {hud && showHud && (
+        <Hud hud={hud} portraits={portraits} minimapRef={minimapRef} dim={screen !== 'play'} touch={touch && !hud.gamepad?.active} onInteract={interact} />
+      )}
       {hud?.opening && (
         <OpeningCutscene
           step={hud.opening.step}
@@ -88,7 +98,7 @@ export default function App() {
           onSkip={() => game.current?.finishOpening()}
         />
       )}
-      {hud && screen === 'title' && <TitleScreen portraits={portraits} pad={hud.gamepad?.layout} onStart={start} />}
+      {hud && screen === 'title' && <TitleScreen portraits={portraits} pad={hud.gamepad?.layout} touch={touch} onStart={start} />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}
       {hud && screen === 'paused' && (
         <PauseScreen
