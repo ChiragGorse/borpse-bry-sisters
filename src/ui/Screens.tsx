@@ -2,7 +2,8 @@ import { useState, type ReactNode } from 'react';
 import { serverAddress, type NetStatus } from '../game/net/NetClient';
 import { ACTIVE_INFO, type ActiveId, type HudState } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
-import { Key, Portrait } from './Hud';
+import { Key, Keys, Portrait } from './Hud';
+import { bindLabel } from '../game/keybinds';
 
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -20,42 +21,16 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
     [<Key>{padActionLabel(pad, 'listen')}</Key>, 'Hog Hunt: ask Herb where to dig'],
     [<Key>{padLabel(pad, 'start')}</Key>, 'Pause / resume'],
   ] : [
-    [
-      <>
-        <Key>W</Key>
-        <Key>A</Key>
-        <Key>S</Key>
-        <Key>D</Key>
-      </>,
-      'Move',
-    ],
+    [<><Key>{bindLabel('forward')}</Key><Key>{bindLabel('left')}</Key><Key>{bindLabel('back')}</Key><Key>{bindLabel('right')}</Key></>, 'Move'],
     [<Key>Mouse</Key>, 'Look around (arrow keys also work)'],
-    [
-      <>
-        <Key>LMB</Key>
-        <Key>J</Key>
-      </>,
-      'Headbutt — chain three for a heavy finisher',
-    ],
-    [
-      <>
-        <Key>RMB</Key>
-        <Key>K</Key>
-      </>,
-      'Hog Charge — big damage, cracks his stagger bar',
-    ],
-    [<Key>Shift</Key>, 'Dodge roll — roll through a hit for a Perfect Dodge'],
-    [<Key>Space</Key>, 'Jump — hop shockwaves (or dive with Belly Flop)'],
-    [<Key>Q F C V X G</Key>, 'Six ability slots: abilities you buy drop into them (rearrange in the pause menu)'],
-    [<Key>E</Key>, 'Talk to Rickley / Kingger / Trout, enter forest, ring bell'],
-    [<Key>R</Key>, 'Hog Hunt: ask Herb which way to the next truffles'],
-    [
-      <>
-        <Key>Esc</Key>
-        <Key>M</Key>
-      </>,
-      'Pause · mute',
-    ],
+    [<Keys action="attack" />, 'Headbutt — chain three for a heavy finisher'],
+    [<Keys action="charge" />, 'Hog Charge — big damage, cracks his stagger bar'],
+    [<Keys action="roll" />, 'Dodge roll — roll through a hit for a Perfect Dodge'],
+    [<Keys action="jump" />, 'Jump — hop shockwaves (or dive with Belly Flop)'],
+    [<Key>{(['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6'] as const).map((a) => bindLabel(a)).join(' ')}</Key>, 'Six ability slots: abilities you buy drop into them (rearrange in the pause menu)'],
+    [<Keys action="interact" />, 'Talk, shop, travel, dig, ring the bell'],
+    [<Keys action="listen" />, 'Hog Hunt: ask Herb which way to the next truffles'],
+    [<><Key>Esc</Key><Key>{bindLabel('mute')}</Key></>, 'Pause · mute'],
   ];
   return (
     <dl className={`grid grid-cols-[auto_1fr] items-center gap-x-2.5 text-ink ${pad ? 'gap-y-1.5 text-xs' : 'gap-y-2 text-[13px]'} font-bold leading-snug`}>
@@ -107,7 +82,7 @@ function writePref(key: string, value: string) {
 /** Host or join an online room, then wait in its lobby. */
 function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: number) => void }) {
   const st = online.status;
-  const [name, setName] = useState(() => readPref('borpse.name', 'Kenji'));
+  const [name, setName] = useState(() => readPref('borpse.name', ''));
   const [room, setRoom] = useState(() => new URLSearchParams(window.location.search).get('room')?.toUpperCase().slice(0, 4) ?? '');
   const [copied, setCopied] = useState(false);
   // a server from an invite link wins over the one remembered from last time
@@ -208,6 +183,11 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
       className="rise-in flex max-w-[560px] flex-wrap items-end gap-2 [animation-delay:170ms]"
       onSubmit={(e) => {
         e.preventDefault();
+        if (!name.trim()) {
+          setFormError('Pick a name first, so everyone knows which pig is you.');
+          document.getElementById('online-name')?.focus();
+          return;
+        }
         const addr = serverAddress(server);
         if ('error' in addr) {
           setFormError(addr.error);
@@ -232,8 +212,20 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
         />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Online name</span>
-        <input id="online-name" value={name} maxLength={16} onChange={(e) => setName(e.target.value)} className="w-36 rounded-lg border-2 border-ink bg-paper px-2 py-1 text-sm font-bold text-ink" />
+        <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Your name *</span>
+        <input
+          id="online-name"
+          value={name}
+          maxLength={16}
+          required
+          placeholder="e.g. Kenji"
+          aria-invalid={!!formError && !name.trim()}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (formError) setFormError(null);
+          }}
+          className={`w-36 rounded-lg border-2 bg-paper px-2 py-1 text-sm font-bold text-ink ${formError && !name.trim() ? 'border-barn' : 'border-ink'}`}
+        />
       </label>
       <label className="flex flex-col gap-1">
         <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Room code</span>
@@ -246,7 +238,7 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
           className="w-24 rounded-lg border-2 border-ink bg-paper px-2 py-1 font-mono text-sm font-bold uppercase tracking-[0.2em] text-ink"
         />
       </label>
-      <button type="submit" className="btn bg-pig px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-ink">
+      <button type="submit" disabled={!name.trim()} title={name.trim() ? undefined : 'Enter your name first'} className="btn bg-pig px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-ink disabled:opacity-60">
         {room.length === 4 ? 'Join room' : 'Host a room'}
       </button>
       {(formError || (st?.state === 'closed' && st.error)) && (
@@ -274,7 +266,9 @@ export function TitleScreen({
   onRole,
   online,
   onStart,
+  onSettings,
 }: {
+  onSettings?: () => void;
   role?: 'pig' | 'allen';
   onRole?: (r: 'pig' | 'allen') => void;
   portraits: Record<string, string>;
@@ -322,6 +316,11 @@ export function TitleScreen({
           >
             {waiting ? 'WAITING FOR HOST' : 'DEFEND THE FARM'}
           </button>
+          {onSettings && (
+            <button type="button" onClick={onSettings} className="btn bg-paper px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-ink">
+              Settings
+            </button>
+          )}
           <div className="text-sm font-bold text-paper/80">
             <p>8 brutal courses · a finale boss · truffle hunts in a haunted forest</p>
             {pad ? (
@@ -501,34 +500,58 @@ export function OpeningCutscene({
 
 /* ───────────────────────── pause ───────────────────────── */
 
-const GFX_LABEL = { high: 'Cinematic', medium: 'Balanced', low: 'Fast' } as const;
+/** A menu action that ends the run: the first press asks, the second does it. */
+export interface MenuAction {
+  label: string;
+  /** Shown on the button after the first press. */
+  confirm?: string;
+  onPress: () => void;
+}
+
+function ConfirmButton({ action, className }: { action: MenuAction; className: string }) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (action.confirm && !asking) {
+          setAsking(true);
+          window.setTimeout(() => setAsking(false), 5000);
+          return;
+        }
+        action.onPress();
+      }}
+      onBlur={() => setAsking(false)}
+      className={`${className} ${asking ? 'bg-barn text-paper' : ''}`}
+    >
+      {asking ? action.confirm : action.label}
+    </button>
+  );
+}
 
 export function PauseScreen({
   muted,
-  gfx,
   pad,
   disconnected,
   onResume,
   onMute,
-  onGraphics,
-  onRestart,
-  onReturnFarm,
-  restartLabel = 'Start over',
+  onSettings,
+  actions,
   note,
   loadout,
+  onReturnFarm,
 }: {
-  restartLabel?: string;
-  note?: string;
-  /** Your ability slots and the abilities you own, to rearrange. */
-  loadout?: { actives: HudState['actives']; owned: ActiveId[]; onAssign: (slot: number, id: ActiveId | null) => void };
   muted: boolean;
-  gfx: 'high' | 'medium' | 'low';
   pad?: PadLayout;
   disconnected?: boolean;
   onResume: () => void;
   onMute: () => void;
-  onGraphics: () => void;
-  onRestart: () => void;
+  onSettings: () => void;
+  /** Restart / back to the menu / leave the room, as fits this game. */
+  actions: MenuAction[];
+  note?: string;
+  /** Your ability slots and the abilities you own, to rearrange. */
+  loadout?: { actives: HudState['actives']; owned: ActiveId[]; onAssign: (slot: number, id: ActiveId | null) => void };
   onReturnFarm?: () => void;
 }) {
   return (
@@ -542,19 +565,30 @@ export function PauseScreen({
         ) : (
           <p className="mt-1.5 text-sm font-bold text-ink/65">{onReturnFarm ? 'The forest can wait. Your truffles are safe.' : 'Allen is politely holding his fork mid-air.'}</p>
         )}
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button type="button" onClick={onResume} autoFocus data-pad-default className="btn flex-1 bg-mustard px-5 py-2.5 font-display text-xl leading-none">
+        <div className="mt-4 grid gap-2">
+          <button type="button" onClick={onResume} autoFocus data-pad-default className="btn bg-mustard px-5 py-3 font-display text-xl leading-none">
             RESUME
           </button>
-          <button type="button" onClick={onMute} aria-pressed={muted} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide">
-            Sound: {muted ? 'off' : 'on'}
-          </button>
-          <button type="button" onClick={onGraphics} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide" title="Cinematic adds ambient occlusion, denser grass and sharper shadows. Fast is for slower computers.">
-            Graphics: {GFX_LABEL[gfx]}
-          </button>
-          <button type="button" onClick={onRestart} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide">
-            {restartLabel}
-          </button>
+          {onReturnFarm && (
+            <button type="button" onClick={onReturnFarm} className="btn bg-[#416744] px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-paper">
+              Return to the farm with your truffles
+            </button>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={onSettings} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide">
+              Settings
+            </button>
+            <button type="button" onClick={onMute} aria-pressed={muted} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide">
+              Sound: {muted ? 'off' : 'on'}
+            </button>
+          </div>
+          {actions.length > 0 && (
+            <div className={`grid gap-2 ${actions.length > 1 ? 'grid-cols-2' : ''}`}>
+              {actions.map((a) => (
+                <ConfirmButton key={a.label} action={a} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide" />
+              ))}
+            </div>
+          )}
         </div>
         {note && <p className="mt-3 text-sm font-bold text-ink/70">{note}</p>}
         {loadout && loadout.owned.length > 0 && (
@@ -586,21 +620,21 @@ export function PauseScreen({
             </ul>
           </section>
         )}
-        {onReturnFarm && (
-          <button type="button" onClick={onReturnFarm} className="btn mt-3 w-full bg-[#416744] px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-paper">Return to the farm with your truffles</button>
-        )}
-        <div className="mt-4 rounded-xl border-[2.5px] border-ink bg-white p-3.5">
-          {pad && <p className="mb-3 border-b border-ink/15 pb-2 font-mono text-[10px] font-medium uppercase tracking-wide text-ink/65">D-pad / stick to select · {padLabel(pad, 'south')} to confirm</p>}
-          <ControlsList pad={pad} />
-        </div>
-        <div className="mt-3 rounded-xl border-[2.5px] border-ink bg-[#fff1d6] p-3">
-          <h3 className="font-display text-sm leading-none text-[#c2501a]">ALLEN &amp; HIS KITCHEN BRIGADE</h3>
+        <details className="mt-4 rounded-xl border-[2.5px] border-ink bg-white p-3.5">
+          <summary className="cursor-pointer font-display text-sm leading-none">CONTROLS</summary>
+          <div className="mt-3">
+            {pad && <p className="mb-3 border-b border-ink/15 pb-2 font-mono text-[10px] font-medium uppercase tracking-wide text-ink/65">D-pad / stick to select · {padLabel(pad, 'south')} to confirm</p>}
+            <ControlsList pad={pad} />
+          </div>
+        </details>
+        <details className="mt-3 rounded-xl border-[2.5px] border-ink bg-[#fff1d6] p-3">
+          <summary className="cursor-pointer font-display text-sm leading-none text-[#c2501a]">TIPS</summary>
           <ul className="mt-2 space-y-1 text-[12px] font-bold leading-snug">
-            <li>Sauce Shield / Wok Guard / Sizzle Spin — smash all sauce jars, flank his wok, and kite his spin.</li>
-            <li>Kitchen Brigade — Grillbots bite, Sriracha Spitters leave burning chili puddles, Skewer Hounds lunge, Tenderizer Brutes armor-slam, and Kettle Bombers explode (knock them back with Tail-Whip!).</li>
-            <li>Six named hogs roam Slopwood Forest. Recruit them between courses. Fallen hogs do not return.</li>
+            <li>Sauce Shield / Wok Guard / Sizzle Spin: smash all sauce jars, flank his wok, and kite his spin.</li>
+            <li>Kitchen Brigade: Grillbots bite, Sriracha Spitters leave burning chili puddles, Skewer Hounds lunge, Tenderizer Brutes armor-slam, and Kettle Bombers explode (knock them back with Tail-Whip!).</li>
+            <li>Between courses, go on a Hog Hunt with Herb for truffles. Stay near his lantern.</li>
           </ul>
-        </div>
+        </details>
       </div>
     </div>
   );
@@ -629,7 +663,7 @@ function Stats({ hud }: { hud: HudState }) {
   );
 }
 
-export function GameOverScreen({ hud, portraits, onRetry, onRestart }: { hud: HudState; portraits: Record<string, string>; onRetry: () => void; onRestart: () => void }) {
+export function GameOverScreen({ hud, portraits, onRetry, actions }: { hud: HudState; portraits: Record<string, string>; onRetry: () => void; actions: MenuAction[] }) {
   const farm = hud.overReason === 'farm';
   const guppy = hud.overReason === 'guppy';
   return (
@@ -662,9 +696,9 @@ export function GameOverScreen({ hud, portraits, onRetry, onRestart }: { hud: Hu
           <button type="button" onClick={onRetry} autoFocus data-pad-default className="btn flex-1 bg-mustard px-5 py-3 font-display text-xl leading-none">
             {hud.allen ? `PLAY COURSE ${hud.course + 1} AGAIN` : guppy ? 'RETURN TO THE FARM' : `RETRY COURSE ${hud.course + 1}`}
           </button>
-          <button type="button" onClick={onRestart} className="btn bg-white px-4 py-3 text-sm font-extrabold uppercase tracking-wide">
-            Start over
-          </button>
+          {actions.map((a) => (
+            <ConfirmButton key={a.label} action={a} className="btn bg-white px-4 py-3 text-sm font-extrabold uppercase tracking-wide" />
+          ))}
         </div>
         {!guppy && <p className="mt-3 text-xs font-bold text-ink/60">Retrying keeps every upgrade you bought before ringing the bell.</p>}
       </div>
@@ -672,7 +706,7 @@ export function GameOverScreen({ hud, portraits, onRetry, onRestart }: { hud: Hu
   );
 }
 
-export function VictoryScreen({ hud, portraits, onRestart }: { hud: HudState; portraits: Record<string, string>; onRestart: () => void }) {
+export function VictoryScreen({ hud, portraits, onRestart, actions }: { hud: HudState; portraits: Record<string, string>; onRestart: () => void; actions: MenuAction[] }) {
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto bg-ink/45 p-4" data-pad-menu>
       <div role="dialog" aria-modal="true" aria-labelledby="win-title" className="pop-in my-auto w-full max-w-[680px] overflow-hidden rounded-[20px] border-[3px] border-ink bg-paper shadow-[8px_8px_0_var(--color-ink)]">
@@ -683,7 +717,7 @@ export function VictoryScreen({ hud, portraits, onRestart }: { hud: HudState; po
           <Portrait src={portraits.trout} alt="Trout" bg="bg-[#b5edf5]" className="h-16 w-16" />
         </div>
         <div className="p-5 sm:p-7">
-          <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-leaf">{hud.allen ? 'All eight courses served' : 'All eight courses survived'}</p>
+          <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-leaf">{hud.allen ? 'Every course served' : 'Every course survived, Earwhen included'}</p>
           <h2 id="win-title" className="mt-1 font-display text-4xl leading-none sm:text-5xl">
             {hud.allen ? 'THE PIGS WON' : 'THE FARM IS SAVED'}
           </h2>
@@ -692,9 +726,14 @@ export function VictoryScreen({ hud, portraits, onRestart }: { hud: HudState; po
             Allen B. Hwang has sworn off pork belly and is, reportedly, very into tofu now. Rickley is planting soybeans just in case. Kingger wants his Grillbots back for “research”.
           </p>
           <Stats hud={hud} />
-          <button type="button" onClick={onRestart} autoFocus data-pad-default className="btn mt-5 w-full bg-mustard px-5 py-3 font-display text-xl leading-none">
-            PLAY AGAIN
-          </button>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button type="button" onClick={onRestart} autoFocus data-pad-default className="btn flex-1 bg-mustard px-5 py-3 font-display text-xl leading-none">
+              PLAY AGAIN
+            </button>
+            {actions.map((a) => (
+              <ConfirmButton key={a.label} action={a} className="btn bg-white px-4 py-3 text-sm font-extrabold uppercase tracking-wide" />
+            ))}
+          </div>
         </div>
       </div>
     </div>

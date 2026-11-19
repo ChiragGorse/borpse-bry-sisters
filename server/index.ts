@@ -114,7 +114,11 @@ server.on('upgrade', (req, socket) => {
     rooms.set(newCode, room);
     log(`room ${newCode} opened (${rooms.size} open)`);
   }
-  room.join(conn, url.searchParams.get('name') ?? '');
+  // a refused join (no name, a taken name, a full room) leaves a brand-new room empty: don't keep it
+  if (!room.join(conn, url.searchParams.get('name') ?? '') && room.size === 0) {
+    rooms.delete(room.code);
+    log(`room ${room.code} closed (${rooms.size} open)`);
+  }
 });
 
 server.listen(PORT, HOST, () => log(`Borpse Bry Sisters server on http://${HOST}:${PORT}  (game files: ${STATIC_DIR})`));

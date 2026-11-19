@@ -44,13 +44,14 @@ import {
   type TurretModel,
   type PotModel,
 } from './models';
-import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN, FINALE, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, SLOT_KEYS, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
+import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN, FINALE, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
 import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
 import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
 import { SCARE_FACE_SVG } from '../ui/scareFace';
+import { bindLabel, translate, type BindAction } from './keybinds';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
 import { COIL, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
@@ -90,13 +91,16 @@ const ACTIVE_BTN: Record<ActiveId, number> = {
 const PREFERRED_SLOT: Partial<Record<ActiveId, number>> = { zap: 0, squeal: 1, tailwhip: 2, portal: 3, smash: 4, potion: 5 };
 const SLOT_PAD: (keyof typeof PAD_ACTIONS)[] = ['zap', 'squeal', 'whip', 'slot4', 'slot5', 'slot6'];
 
-/** Keyboard / mouse codes for each simulation button (Q/F/C are Allen's; pigs use loadout slots). */
+/**
+ * The canonical key for each simulation button (Q/F/C are Allen's; pigs use loadout slots). Physical keys
+ * reach these through the player's keybinds (./keybinds.ts); the gamepad and touch buttons press them directly.
+ */
 const BUTTON_KEYS: [number, string[]][] = [
-  [BTN.attack, ['Mouse0', 'KeyJ']],
-  [BTN.charge, ['Mouse2', 'KeyK']],
-  [BTN.roll, ['ShiftLeft', 'ShiftRight', 'KeyL']],
+  [BTN.attack, ['KeyJ']],
+  [BTN.charge, ['KeyK']],
+  [BTN.roll, ['ShiftLeft']],
   [BTN.jump, ['Space']],
-  [BTN.zap, ['KeyQ', 'KeyZ']],
+  [BTN.zap, ['KeyQ']],
   [BTN.squeal, ['KeyF']],
   [BTN.whip, ['KeyC']],
   [BTN.interact, ['KeyE']],
@@ -258,6 +262,8 @@ export class Game {
   private players = new Map<number, PlayerView>();
   private openingPigs: KenjiModel[] = [];
   private camLook = new THREE.Vector3();
+  /** The settings dialog is open over the pause menu (Esc closes it, not the pause). */
+  settingsOpen = false;
   private skyArea: Area = 'farm';
   /** Hog Hunt lighting: Herb's lantern and a faint glow round your own pig (off on the farm). */
   private herbLight = new THREE.PointLight(0xffb04a, 0, 22, 1.6);
@@ -598,6 +604,9 @@ export class Game {
       this.controllerDisconnected = false;
       this.lock();
       this.emit();
+    } else if (s.state === 'lobby' && this.screen !== 'title') {
+      // the host took the room back to the lobby
+      this.goToTitle();
     } else if (s.state === 'closed') {
       // keep the error for the title screen, but play offline from here
       const err = s;
@@ -768,19 +777,23 @@ export class Game {
   private onKeyDown = (e: KeyboardEvent) => {
     const code = e.code;
     if ((this.padActive || this.controllerDisconnected) && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.switchToKeyboard();
+    // what this key does under the player's keybinds
+    const virt = translate(code);
     if (this.screen === 'play') {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(code) || virt.includes('Space')) e.preventDefault();
       if (e.repeat) return;
       this.sfx.unlock();
-      this.keys.add(code);
-      this.pressed.add(code);
-      if (this.sim.opening && (code === 'Space' || code === 'Enter' || code === 'KeyE')) this.advanceOpening();
-      if (code === 'KeyP' || code === 'Escape') this.pause();
-      if (code === 'KeyM') this.toggleMute();
+      for (const v of virt) {
+        this.keys.add(v);
+        this.pressed.add(v);
+      }
+      if (this.sim.opening && (virt.includes('Space') || code === 'Enter' || virt.includes('KeyE'))) this.advanceOpening();
+      if (virt.includes('KeyP') || code === 'Escape') this.pause();
+      if (virt.includes('KeyM')) this.toggleMute();
     } else if (e.repeat) {
       return;
     } else if (this.screen === 'shop') {
-      if (code === 'Escape' || code === 'KeyE') {
+      if (code === 'Escape' || virt.includes('KeyE')) {
         e.preventDefault();
         this.closeShop();
       } else if (/^Digit[1-9]$/.test(code)) {
@@ -789,12 +802,13 @@ export class Game {
         if (u) this.buy(u.id);
       }
     } else if (this.screen === 'paused') {
-      if (code === 'KeyP' || code === 'Escape') this.resume();
-      if (code === 'KeyM') this.toggleMute();
+      if (this.settingsOpen) return;
+      if (virt.includes('KeyP') || code === 'Escape') this.resume();
+      if (virt.includes('KeyM')) this.toggleMute();
     }
   };
   private onKeyUp = (e: KeyboardEvent) => {
-    this.keys.delete(e.code);
+    for (const v of translate(e.code)) this.keys.delete(v);
   };
   private onBlur = () => {
     this.keys.clear();
@@ -817,11 +831,13 @@ export class Game {
     this.switchToKeyboard();
     this.sfx.unlock();
     if (!this.locked) this.lock();
-    this.keys.add('Mouse' + e.button);
-    this.pressed.add('Mouse' + e.button);
+    for (const v of translate('Mouse' + e.button)) {
+      this.keys.add(v);
+      this.pressed.add(v);
+    }
   };
   private onMouseUp = (e: MouseEvent) => {
-    this.keys.delete('Mouse' + e.button);
+    for (const v of translate('Mouse' + e.button)) this.keys.delete(v);
   };
   private onMouseMove = (e: MouseEvent) => {
     if (!this.locked || this.screen !== 'play') return;
@@ -951,7 +967,7 @@ export class Game {
       buttons &= ~(BTN.zap | BTN.squeal | BTN.whip);
       for (let i = 0; i < LOADOUT_SLOTS; i++) {
         const id = this.loadout[i];
-        if (id && (this.pressed.has(SLOT_CODES[i]) || this.pressed.has(`Digit${i + 1}`))) buttons |= ACTIVE_BTN[id];
+        if (id && this.pressed.has(SLOT_CODES[i])) buttons |= ACTIVE_BTN[id];
       }
     }
     return { mx: fx * iz + rx * ix, mz: fz * iz + rz * ix, buttons };
@@ -1159,6 +1175,38 @@ export class Game {
     this.screen = 'play';
     this.processEvents();
     this.lock();
+    this.emit();
+  }
+
+  /**
+   * Back to the title screen. Solo, the run ends. Online, a host takes the whole room back to its lobby
+   * (everyone stays connected); anyone else leaves the room.
+   */
+  toMenu() {
+    if (this.online) {
+      const net = this.net?.status;
+      if (net?.host) (this.sim as NetSim).toLobby();
+      else this.leaveOnline();
+      return;
+    }
+    this.localSim.start({ opening: false });
+    this.goToTitle();
+  }
+
+  /** Shows the title screen over a reset farm. */
+  private goToTitle() {
+    this.screen = 'title';
+    this.keys.clear();
+    this.pressed.clear();
+    this.touchMoveX = this.touchMoveY = 0;
+    this.controllerDisconnected = false;
+    this.unlock();
+    this.processEvents();
+    this.clearViews();
+    this.syncPlayers(0);
+    for (const pig of this.openingPigs) pig.root.visible = false;
+    this.restoreCinematicActors();
+    this.placeTitle();
     this.emit();
   }
 
@@ -3685,7 +3733,7 @@ export class Game {
     return {
       actives: this.loadout.map((id, slot) => ({
         slot,
-        key: pad ? padActionLabel(pad, SLOT_PAD[slot]) : SLOT_KEYS[slot],
+        key: pad ? padActionLabel(pad, SLOT_PAD[slot]) : bindLabel(`slot${slot + 1}` as BindAction),
         code: SLOT_CODES[slot],
         id,
         name: id ? ACTIVE_INFO[id].name : '',
@@ -3707,14 +3755,14 @@ export class Game {
       active: A.active,
       state: A.state,
       moves: [
-        move('LMB', 'headbutt', 'Claw swipe', A.cdSwipe, 1.2),
-        move('RMB', 'charge', 'Dash', A.cdDash, 9),
-        move('Space', 'jump', 'Body slam', A.cdSlam, 6.5),
-        move('Shift', 'roll', 'Wok guard', A.cdGuard, 10),
-        move('Q', 'zap', 'Chopsticks', A.cdThrow, 4.8),
-        move('F', 'squeal', 'Summon bots', A.cdSummon, c.waveCd),
-        move('C', 'whip', 'Hot pot rain', A.cdRain, 11),
-        move('R', 'listen', 'Sizzle spin', A.cdSpin, 15),
+        move(bindLabel('attack'), 'headbutt', 'Claw swipe', A.cdSwipe, 1.2),
+        move(bindLabel('charge'), 'charge', 'Dash', A.cdDash, 9),
+        move(bindLabel('jump'), 'jump', 'Body slam', A.cdSlam, 6.5),
+        move(bindLabel('roll'), 'roll', 'Wok guard', A.cdGuard, 10),
+        move(bindLabel('slot1'), 'zap', 'Chopsticks', A.cdThrow, 4.8),
+        move(bindLabel('slot2'), 'squeal', 'Summon bots', A.cdSummon, c.waveCd),
+        move(bindLabel('slot3'), 'whip', 'Hot pot rain', A.cdRain, 11),
+        move(bindLabel('listen'), 'listen', 'Sizzle spin', A.cdSpin, 15),
       ],
     };
   }

@@ -437,6 +437,10 @@ export class NetSim implements GameSim {
   restart() {
     this.send({ t: 'restart' });
   }
+  /** Host: end the run and bring everyone back to the room's lobby. */
+  toLobby() {
+    this.send({ t: 'lobby' });
+  }
   returnToFarm() {
     this.send({ t: 'farm' });
   }

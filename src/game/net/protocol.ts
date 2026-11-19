@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -141,6 +141,8 @@ export type ClientMsg =
   | { t: 'start' }
   | { t: 'retry' }
   | { t: 'restart' }
+  /** Host: end the run and take the whole room back to its lobby (nobody is disconnected). */
+  | { t: 'lobby' }
   | { t: 'farm' }
   | { t: 'closeShop' }
   | { t: 'buy'; id: UpgradeId }

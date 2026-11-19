@@ -78,7 +78,15 @@ export class Room {
       this.sim.removePlayer(bot);
       this.botCount = this.botIds.length;
     }
-    const name = (rawName.replace(/[^\p{L}\p{N} _.'-]/gu, '').trim() || `Pig ${this.members.length + 1}`).slice(0, MAX_NAME);
+    const name = rawName.replace(/[^\p{L}\p{N} _.'-]/gu, '').trim().slice(0, MAX_NAME);
+    // everyone needs a name, and a different one from everyone else in the room
+    const refuse = (msg: string) => {
+      this.sendTo(conn, { t: 'error', msg });
+      conn.close(4002, 'bad name');
+      return false;
+    };
+    if (!name) return refuse('Pick a name before joining (letters and numbers).');
+    if (this.members.some((m) => m.name.toLowerCase() === name.toLowerCase())) return refuse(`Someone in room ${this.code} is already called ${name}. Pick another name.`);
     const p = this.sim.addPlayer(name)!;
     // this browser drives its own pig from now on
     this.sim.setClientDriven(p.id);
@@ -199,6 +207,17 @@ export class Room {
         break;
       case 'restart':
         if (this.playing && (this.sim.outcome || isHost)) this.sim.start({ opening: false });
+        break;
+      case 'lobby':
+        // the host ends the run; everyone stays connected and lands back in the lobby to change settings
+        if (isHost && this.playing) {
+          this.playing = false;
+          this.sim.start({ opening: false });
+          this.lastMeta = '';
+          this.log('back to the lobby');
+          this.broadcastLobby();
+          this.broadcastState([]);
+        }
         break;
       case 'retry':
         if (this.playing && this.sim.outcome) this.sim.retryCourse();

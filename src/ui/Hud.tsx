@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { HudState } from '../game/data';
 import { padActionLabel } from '../game/gamepad';
+import { bindLabel, getBinds, keyLabel, type BindAction } from '../game/keybinds';
 
 export function TruffleIcon({ className = '' }: { className?: string }) {
   return (
@@ -10,6 +11,22 @@ export function TruffleIcon({ className = '' }: { className?: string }) {
       <circle cx="10" cy="11" r="1.1" fill="#8d6a48" />
       <circle cx="14.5" cy="14" r="1.3" fill="#8d6a48" />
     </svg>
+  );
+}
+
+/** Every key bound to an action, as key caps separated by slashes. */
+export function Keys({ action }: { action: BindAction }) {
+  const keys = getBinds()[action];
+  if (!keys.length) return <Key>unbound</Key>;
+  return (
+    <>
+      {keys.map((c, i) => (
+        <span key={c} className="contents">
+          {i > 0 && ' / '}
+          <Key>{keyLabel(c)}</Key>
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -197,8 +214,8 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
   const pad = hud.gamepad?.active ? hud.gamepad.layout : undefined;
   const low = hud.hp / hud.maxHp < 0.3 && hud.hp > 0;
   const [promptKey, promptText] = hud.prompt ? hud.prompt.split('|') : ['', ''];
-  const interactKey = pad ? padActionLabel(pad, 'interact') : 'E';
-  const listenKey = pad ? padActionLabel(pad, 'listen') : 'R';
+  const interactKey = pad ? padActionLabel(pad, 'interact') : bindLabel('interact');
+  const listenKey = pad ? padActionLabel(pad, 'listen') : bindLabel('listen');
   const inForest = hud.area === 'forest';
   const firstBreak = !inForest && hud.mode === 'intermission' && hud.course === 0;
 
@@ -244,9 +261,9 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             </div>
           </div>
           <div className={`mt-2 grid-cols-3 gap-1 ${touch ? 'hidden' : 'grid sm:flex'}`}>
-            <Ability k={pad ? padActionLabel(pad, 'headbutt') : 'LMB'} name={hud.cycloneUnlocked ? 'Butt×4' : 'Butt'} />
-            <Ability k={pad ? padActionLabel(pad, 'charge') : 'RMB'} name={hud.rushReady ? 'RUSH!' : 'Charge'} cd={hud.chargeCd} glow={hud.rushReady} />
-            <Ability k={pad ? padActionLabel(pad, 'roll') : 'SHIFT'} name="Roll" cd={hud.stam < 25 ? 1 : 0} />
+            <Ability k={pad ? padActionLabel(pad, 'headbutt') : bindLabel('attack')} name={hud.cycloneUnlocked ? 'Butt×4' : 'Butt'} />
+            <Ability k={pad ? padActionLabel(pad, 'charge') : bindLabel('charge')} name={hud.rushReady ? 'RUSH!' : 'Charge'} cd={hud.chargeCd} glow={hud.rushReady} />
+            <Ability k={pad ? padActionLabel(pad, 'roll') : bindLabel('roll')} name="Roll" cd={hud.stam < 25 ? 1 : 0} />
           </div>
           {/* your loadout: the abilities in your six slots */}
           <div className={`mt-1 gap-1 ${touch ? 'hidden' : 'flex'}`}>
@@ -485,7 +502,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
           <h2 className="font-display text-sm leading-none">HOW TO PIG</h2>
           <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2.5 gap-y-1.5 text-xs font-bold">
             <dt className="flex gap-0.5">
-              {pad ? <Key>Left stick</Key> : <><Key>W</Key><Key>A</Key><Key>S</Key><Key>D</Key></>}
+              {pad ? <Key>Left stick</Key> : <><Key>{bindLabel('forward')}</Key><Key>{bindLabel('left')}</Key><Key>{bindLabel('back')}</Key><Key>{bindLabel('right')}</Key></>}
             </dt>
             <dd>Trot around</dd>
             <dt>
@@ -493,15 +510,15 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             </dt>
             <dd>{pad ? 'Look around' : 'Look (arrows work too)'}</dd>
             <dt>
-              {pad ? <Key>{padActionLabel(pad, 'headbutt')}</Key> : <><Key>LMB</Key> / <Key>J</Key></>}
+              {pad ? <Key>{padActionLabel(pad, 'headbutt')}</Key> : <Keys action="attack" />}
             </dt>
             <dd>Headbutt combo ×3</dd>
             <dt>
-              {pad ? <Key>{padActionLabel(pad, 'charge')}</Key> : <><Key>RMB</Key> / <Key>K</Key></>}
+              {pad ? <Key>{padActionLabel(pad, 'charge')}</Key> : <Keys action="charge" />}
             </dt>
             <dd>Hog Charge</dd>
             <dt>
-              <Key>{pad ? padActionLabel(pad, 'roll') : 'Shift'}</Key>
+              <Key>{pad ? padActionLabel(pad, 'roll') : bindLabel('roll')}</Key>
             </dt>
             <dd>Dodge roll (invincible)</dd>
             <dt>
@@ -528,7 +545,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
 
       {!pad && !touch && !hud.locked && hud.screen === 'play' && (
         <p className="absolute bottom-4 right-4 hidden max-w-[240px] rounded-xl border-[2.5px] border-ink bg-paper/95 px-3 py-2 text-xs font-bold leading-snug sm:block">
-          Click the game to steer the camera with your mouse. <Key>Esc</Key> pauses.
+          Click the game to steer the camera with your mouse. <Key>Esc</Key> pauses. Rebind keys in Settings.
         </p>
       )}
 

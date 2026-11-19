@@ -3,7 +3,8 @@ import { Game } from './game/Game';
 import type { HudState, UpgradeId } from './game/data';
 import { Hud } from './ui/Hud';
 import { Shop } from './ui/Shop';
-import { GameOverScreen, OpeningCutscene, PauseScreen, TitleScreen, VictoryScreen } from './ui/Screens';
+import { GameOverScreen, OpeningCutscene, PauseScreen, TitleScreen, VictoryScreen, type MenuAction } from './ui/Screens';
+import { SettingsDialog } from './ui/Settings';
 import { navigatePadMenu } from './ui/gamepadMenu';
 import { MobileControls } from './ui/MobileControls';
 import { useTouchDevice } from './ui/useTouchDevice';
@@ -82,11 +83,33 @@ export default function App() {
   const start = useCallback(() => game.current?.start(), []);
   const buy = useCallback((id: UpgradeId) => game.current?.buy(id), []);
 
+  const [settings, setSettingsState] = useState(false);
+  const [editTouch, setEditTouch] = useState(false);
+  const setSettings = useCallback((open: boolean) => setSettingsState(open), []);
+  // while a settings overlay is up, Esc and P belong to it, not to the pause menu
+  useEffect(() => {
+    if (game.current) game.current.settingsOpen = settings || editTouch;
+  }, [settings, editTouch]);
+
   const screen = hud?.screen;
   const onlinePlay = net?.state === 'playing';
+  const host = onlinePlay && net!.host;
+  const toMenu = () => game.current?.toMenu();
+  // what ends this run: solo, restart or quit to the title; online, the host can bring the room back to
+  // the lobby (nobody's disconnected), and anyone can leave the room
+  const runActions = (restart: boolean): MenuAction[] =>
+    onlinePlay
+      ? [
+          ...(host ? [{ label: 'Back to lobby', confirm: 'Sure? Ends the run for everyone', onPress: toMenu }] : []),
+          { label: 'Leave room', confirm: host ? 'Sure? Someone else becomes host' : 'Sure? You leave the room', onPress: leaveOnline },
+        ]
+      : [
+          ...(restart ? [{ label: 'Start over', confirm: 'Sure? Back to course 1', onPress: start }] : []),
+          { label: 'Main menu', confirm: 'Sure? This run ends', onPress: toMenu },
+        ];
   const showHud = hud && !hud.opening && (screen === 'play' || screen === 'shop' || screen === 'paused');
   // On-screen controls only on phones/tablets, and only while actually playing (not in menus or cutscenes).
-  const showTouch = touch && hud && !hud.opening && !hud.cinematic && screen === 'play' && !hud.gamepad?.active;
+  const showTouch = touch && hud && !hud.opening && !hud.cinematic && screen === 'play' && !hud.gamepad?.active && !editTouch;
 
   return (
     <div
@@ -116,6 +139,7 @@ export default function App() {
       )}
 
       {hud && showTouch && <MobileControls game={getGame} hud={hud} />}
+      {hud && editTouch && <MobileControls game={getGame} hud={hud} edit onDone={() => setEditTouch(false)} />}
       {hud && showHud && (
         <Hud hud={hud} portraits={portraits} minimapRef={minimapRef} dim={screen !== 'play'} touch={touch && !hud.gamepad?.active} onInteract={interact} />
       )}
@@ -127,7 +151,7 @@ export default function App() {
           onSkip={() => game.current?.finishOpening()}
         />
       )}
-      {hud && screen === 'title' && <TitleScreen
+      {hud && screen === 'title' && !editTouch && <TitleScreen
           portraits={portraits}
           pad={hud.gamepad?.layout}
           touch={touch}
@@ -137,26 +161,43 @@ export default function App() {
           onRole={setRole}
           online={{ defaultServer, status: net, onJoin: joinOnline, onLeave: leaveOnline, onAllen: chooseAllen }}
           onStart={start}
+          onSettings={() => setSettings(true)}
         />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}
-      {hud && screen === 'paused' && (
+      {hud && screen === 'paused' && !editTouch && (
         <PauseScreen
           muted={hud.muted}
-          gfx={hud.gfx}
           pad={hud.gamepad?.active ? hud.gamepad.layout : undefined}
           disconnected={hud.controllerDisconnected}
-          onGraphics={() => game.current?.cycleGraphics()}
           onResume={() => game.current?.resume()}
           onMute={() => game.current?.toggleMute()}
-          onRestart={onlinePlay ? leaveOnline : start}
-          restartLabel={onlinePlay ? 'Leave room' : undefined}
+          onSettings={() => setSettings(true)}
+          actions={runActions(true)}
           loadout={hud.allen ? undefined : { actives: hud.actives, owned: hud.owned, onAssign: (slot, id) => game.current?.setLoadoutSlot(slot, id) }}
           note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : undefined}
           onReturnFarm={hud.area === 'forest' ? () => game.current?.returnToFarm() : undefined}
         />
       )}
-      {hud && screen === 'gameover' && <GameOverScreen hud={hud} portraits={portraits} onRetry={() => game.current?.retryCourse()} onRestart={start} />}
-      {hud && screen === 'victory' && <VictoryScreen hud={hud} portraits={portraits} onRestart={start} />}
+      {hud && screen === 'gameover' && <GameOverScreen hud={hud} portraits={portraits} onRetry={() => game.current?.retryCourse()} actions={runActions(true)} />}
+      {hud && screen === 'victory' && <VictoryScreen hud={hud} portraits={portraits} onRestart={start} actions={runActions(false)} />}
+      {hud && settings && (
+        <SettingsDialog
+          onClose={() => setSettings(false)}
+          touch={touch}
+          muted={hud.muted}
+          onMute={() => game.current?.toggleMute()}
+          gfx={hud.gfx}
+          onGraphics={() => game.current?.cycleGraphics()}
+          onEditTouch={
+            screen === 'paused' || screen === 'title'
+              ? () => {
+                  setSettings(false);
+                  setEditTouch(true);
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

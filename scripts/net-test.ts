@@ -31,7 +31,7 @@ class TestClient {
   name: string;
   ws: WebSocket;
   sim: NetSim | null = null;
-  lobby: { host: number; playing: boolean; players: LobbyPlayer[] } | null = null;
+  lobby: { host: number; playing: boolean; bots: number; players: LobbyPlayer[] } | null = null;
   pid = 0;
   bytes = 0;
   snaps = 0;
@@ -235,6 +235,38 @@ async function main() {
   if (pa !== pb) fail(`clients disagree on who is playing: ${pa} vs ${pb}`);
   ok('clients agree on the herd');
   for (const cl of clients) if (cl.errors.length) fail(`${cl.name} got errors: ${cl.errors.join('; ')}`);
+
+  // names are required, and unique within a room
+  const nameless = new TestClient('', 'TEST', false);
+  await until('a nameless join to be refused', () => nameless.errors.length > 0 && nameless.closed);
+  if (!/name/i.test(nameless.errors[0])) fail(`a nameless join should ask for a name, got: ${nameless.errors[0]}`);
+  const twin = new TestClient('alice', 'TEST', false);
+  await until('a duplicate name to be refused', () => twin.errors.length > 0 && twin.closed);
+  if (!/already called/i.test(twin.errors[0])) fail(`a duplicate name should be refused, got: ${twin.errors[0]}`);
+  const before = a.lobby!.players.length;
+  await new Promise((r) => setTimeout(r, 200));
+  if (a.lobby!.players.length !== before) fail('a refused join should not add a pig');
+  ok(`names required and unique: "${nameless.errors[0]}" / "${twin.errors[0]}"`);
+
+  // the host can take everyone back to the lobby without breaking up the room
+  b.send({ t: 'lobby' });
+  await new Promise((r) => setTimeout(r, 300));
+  if (!a.lobby!.playing) fail('only the host may end the run');
+  a.send({ t: 'lobby' });
+  await until('everyone back in the lobby', () => [a, b].every((x) => x.lobby && !x.lobby.playing));
+  if (a.closed || b.closed) fail('going back to the lobby should keep everyone connected');
+  a.send({ t: 'bots', n: 1 });
+  await until('lobby settings to change', () => [a, b].every((x) => x.lobby?.bots === 1));
+  a.send({ t: 'bots', n: 0 });
+  await until('the bot to leave', () => [a, b].every((x) => x.lobby?.bots === 0));
+  a.send({ t: 'start' });
+  await until('the game to start again', () => [a, b].every((x) => x.lobby?.playing));
+  for (let i = 0; i < 60; i++) {
+    for (const cl of [a, b]) cl.frame(1 / 30);
+    await new Promise((r) => setTimeout(r, 1000 / 30));
+  }
+  if ((a.sim?.course ?? 1) !== 0) fail('a new run should start from course 1');
+  ok('host took the room back to the lobby (nobody disconnected), changed settings, and started a fresh run');
 
   await allenRoom();
 
