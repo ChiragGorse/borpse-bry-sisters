@@ -101,7 +101,35 @@ const SPEAKER: Record<string, string> = {
   Trout: 'bg-[#1f6f78] text-paper',
   'Path Guppy': 'bg-[#266854] text-paper',
   Kenji: 'bg-pig text-ink',
+  Charig: 'bg-[#2f6d4e] text-paper',
+  Kioff: 'bg-[#6a4c9c] text-paper',
+  Earwhen: 'bg-[#6fb7e8] text-ink',
 };
+
+/** Earwhen's health bar (the finale). */
+function EarwhenBar({ earwhen, portraits }: { earwhen: NonNullable<HudState['earwhen']>; portraits: Record<string, string> }) {
+  return (
+    <section aria-label="Earwhen status" className="sticker w-full max-w-[580px] px-3 py-2">
+      <div className="flex items-center gap-3">
+        <Portrait src={portraits.earwhen} alt="Earwhen" bg="bg-[#d4ecfa]" className="h-10 w-10" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <h2 className="font-display text-base leading-none text-[#2f7fb5]">
+              EARWHEN
+              <span className="ml-2 align-middle font-mono text-[10px] font-medium tabular-nums text-ink/60">
+                {Math.ceil(earwhen.hp)}/{earwhen.maxHp}
+              </span>
+            </h2>
+            <span className={`rounded-full border-2 border-ink px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wide ${earwhen.alert ? 'alert-blink bg-barn text-paper' : 'bg-white text-ink'}`}>
+              {earwhen.tag}
+            </span>
+          </div>
+          <Bar value={earwhen.hp} max={earwhen.maxHp} label="Earwhen health" fill="bg-[#6fb7e8]" className="mt-1.5 h-4" />
+        </div>
+      </div>
+    </section>
+  );
+}
 
 interface HudProps {
   hud: HudState;
@@ -174,6 +202,23 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
   const listenKey = pad ? padActionLabel(pad, 'listen') : 'R';
   const inForest = hud.area === 'forest';
   const firstBreak = !inForest && hud.mode === 'intermission' && hud.course === 0;
+
+  // a story moment: letterbox the screen and show only who's talking
+  if (hud.cinematic)
+    return (
+      <div className="cutscene pointer-events-none absolute inset-0 z-10">
+        <div className="cutscene-bar cutscene-bar-top" />
+        <div className="cutscene-bar cutscene-bar-bottom" />
+        {hud.subtitle && (
+          <div className="absolute inset-x-0 bottom-[calc(var(--cutscene-bar)+12px)] flex justify-center px-4">
+            <p key={hud.subtitle.text} className="pop-in flex max-w-[640px] items-start gap-2.5 rounded-2xl border-[3px] border-ink bg-paper/95 px-3.5 py-2 shadow-[4px_4px_0_var(--color-ink)]" role="status">
+              <span className={`mt-0.5 shrink-0 rounded-md border-2 border-ink px-2 py-0.5 font-display text-xs leading-tight ${SPEAKER[hud.subtitle.who] ?? 'bg-white'}`}>{hud.subtitle.who.toUpperCase()}</span>
+              <span className="text-[15px] font-bold leading-snug">{hud.subtitle.text}</span>
+            </p>
+          </div>
+        )}
+      </div>
+    );
 
   return (
     <div className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-200 ${dim ? 'opacity-30' : 'opacity-100'} ${touch ? 'hud-touch' : ''}`}>
@@ -269,7 +314,10 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
         <div className={`col-span-2 col-start-1 row-start-2 justify-center sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1 ${
           hud.banner && !boss.active && !guppy ? 'hidden sm:flex' : 'flex'
         } ${touch ? 'landscape:px-[150px] lg:landscape:px-0' : ''}`}>
-          {boss.active ? (
+          {hud.earwhen && !boss.active ? (
+            <EarwhenBar earwhen={hud.earwhen} portraits={portraits} />
+          ) : boss.active ? (
+            <div className="flex w-full max-w-[580px] flex-col gap-1.5">
             <section aria-label="Allen B. Hwang status" className="sticker w-full max-w-[580px] px-3 py-2.5">
               <div className="flex items-center gap-3">
                 <Portrait src={portraits.allen} alt="Allen B. Hwang" bg="bg-[#ffd3b0]" className="h-12 w-12" />
@@ -335,6 +383,8 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
                 </div>
               </div>
             </section>
+            {hud.earwhen && <EarwhenBar earwhen={hud.earwhen} portraits={portraits} />}
+            </div>
           ) : guppy ? (
             <section aria-label="Path Guppy encounter" className="sticker w-full max-w-[420px] px-4 py-2.5">
               <div className="flex items-center justify-between gap-3">

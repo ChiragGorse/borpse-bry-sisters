@@ -478,7 +478,7 @@ export const COURSES: CourseDef[] = [
     rain: true,
     spin: true,
     intro: 'Sunrise banquet! Every pig, every pie, ON MY PLATE!',
-    newFoe: 'Final Course · 5 phases · relentless brigade',
+    newFoe: '5 phases · relentless brigade',
   },
 ];
 
@@ -568,6 +568,10 @@ export interface HudState {
     guppy: { hp: number; maxHp: number; status: 'chasing' | 'windup' | 'recovering' } | null;
   } | null;
   stats: { time: number; dealt: number; taken: number; earned: number; fallen: number; ko: number };
+  /** Earwhen's health bar, while he's on the farm. */
+  earwhen: { hp: number; maxHp: number; tag: string; alert: boolean } | null;
+  /** A story moment is playing out (letterbox the screen, hide the HUD). */
+  cinematic: boolean;
   /** Your six loadout slots: key, keyboard code, the ability in it (or null), cooldown (1 = just used). */
   actives: { slot: number; key: string; code: string; id: ActiveId | null; name: string; cd: number; icon: string }[];
   /** Active abilities you own (whether or not they're in a slot). */
@@ -619,3 +623,21 @@ export const SLOT_CODES = ['KeyQ', 'KeyF', 'KeyC', 'KeyV', 'KeyX', 'KeyG'] as co
 
 /** Beats in the opening story (Charig's prologue, then Kenji's). */
 export const OPENING_BEATS = 10;
+
+/**
+ * The finale: after the Grand Feast, Allen calls for backup. Course index FINALE (one past the last regular
+ * course) is the fight against Earwhen with a battered Allen at his side.
+ */
+export const FINALE = COURSES.length;
+export const EARWHEN = {
+  name: "Earwhen's Feast",
+  /** Earwhen's health, before the herd-size scaling. */
+  hp: 2300,
+  speed: 6.4,
+  dmg: 2.2,
+  /** Allen comes back with this share of his Grand Feast health. */
+  allenHp: 0.4,
+  /** Seconds between Earwhen's snack runs. */
+  hunger: 16,
+  eatRate: 24,
+};

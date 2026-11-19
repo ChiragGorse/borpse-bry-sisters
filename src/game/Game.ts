@@ -27,6 +27,8 @@ import {
   updateHpBar,
   makeTruffle,
   makeChopsticks,
+  makeCreamShot,
+  makeEarwhen,
   makeTurret,
   makeSaucePot,
   glow,
@@ -37,11 +39,12 @@ import {
   type NpcModel,
   type TroutModel,
   type EnemyModel,
+  type EarwhenModel,
   type WorldHpBar,
   type TurretModel,
   type PotModel,
 } from './models';
-import { ACTIVE_IDS, ACTIVE_INFO, COURSES, HOG_NAMES, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, SLOT_KEYS, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
+import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN, FINALE, HOG_NAMES, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, SLOT_KEYS, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
 import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
@@ -56,7 +59,7 @@ import type { GameSim } from './sim/gameSim';
 import { NetClient, defaultServerUrl, type NetStatus } from './net/NetClient';
 import type { NetSim } from './net/NetSim';
 import { BotBrain } from './sim/botBrain';
-import { ALLEN_ID, BTN, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
+import { ALLEN_ID, BTN, type EarwhenBot, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -153,7 +156,7 @@ const HAZ_FILL_MAT = fxMat(0xff5a1f, 0.34);
 
 /* ───────── one view object per simulated entity ───────── */
 interface PlayerView { m: KenjiModel; walk: number }
-interface BotView { m: EnemyModel | GuppyModel; ring: THREE.Group | null; ringFill: THREE.Mesh | null }
+interface BotView { m: EnemyModel | GuppyModel | EarwhenModel; ring: THREE.Group | null; ringFill: THREE.Mesh | null }
 interface ProjView { mesh: THREE.Group; friendly: boolean }
 interface MatMesh { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
 interface HazardView { g: THREE.Group; fill: THREE.Mesh; ball: THREE.Mesh }
@@ -252,6 +255,7 @@ export class Game {
   /* models */
   private players = new Map<number, PlayerView>();
   private openingPigs: KenjiModel[] = [];
+  private camLook = new THREE.Vector3();
   /** Cutscene-only Path Guppy (an AL kid in the war) and the "back in the lab" memory props. */
   private cutGuppy!: GuppyModel;
   private cutProps!: { group: THREE.Group; screen: THREE.Group; tripod: THREE.Group; lab: THREE.Group; flask: THREE.Mesh; screenMat: THREE.MeshBasicMaterial; brew: THREE.MeshStandardMaterial };
@@ -650,6 +654,7 @@ export class Game {
         ['trout', makeTrout(false).root, [0, 0.56, 0.14], [2.75, 1.22, 2.65]],
         ['charig', makeCharig().body, [0, 2.3, 0], [1.2, 2.5, 4.2]],
         ['kioff', makeKioff().body, [0, 2.3, 0], [1.2, 2.5, 4.2]],
+        ['earwhen', makeEarwhen().root, [0, 3.9, 0.2], [2.3, 4.2, 6.6]],
       ];
       for (const [name, obj, tgt, pos] of shots) {
         s.add(obj);
@@ -1731,7 +1736,7 @@ export class Game {
     }
     // Grillbot glowing charcoal embers
     for (const b of sim.bots) {
-      if (Math.random() < dt * 10) {
+      if (b.kind !== 'earwhen' && Math.random() < dt * 10) {
         this.parts.motes(b.x, 1.0, b.z, 1, 0xff7a1a, 1.6, 0.11, 0.45, -2.5, 0, 0.35, 3.6);
       }
     }
@@ -2273,7 +2278,45 @@ export class Game {
     cam.lookAt(view.look[0], view.look[1], view.look[2]);
   }
 
+  /** The backup call: the camera frames Allen on the phone, then Earwhen leaping in. */
+  private updateCallCamera(dt: number) {
+    const A = this.sim.A;
+    const W = this.sim.bots.find((b): b is EarwhenBot => b.kind === 'earwhen');
+    const t = A.t;
+    const fx = Math.sin(A.heading);
+    const fz = Math.cos(A.heading);
+    const sx = fz;
+    const sz = -fx;
+    let pos: [number, number, number];
+    let look: [number, number, number];
+    if (t < 2.4) {
+      pos = [A.x + fx * 10 + sx * 2, 4.5, A.z + fz * 10 + sz * 2];
+      look = [A.x, 3.6, A.z];
+    } else if (t < 4.6 || !W) {
+      pos = [A.x + fx * 9 - sx * 3, 5, A.z + fz * 9 - sz * 3];
+      look = [A.x - sx * 0.6, 4.2, A.z - sz * 0.6];
+    } else {
+      const mx = (A.x + W.x) / 2;
+      const mz = (A.z + W.z) / 2;
+      const wide = W.act === 'arrive' ? 1 : 0;
+      pos = [mx + fx * (15 + wide * 3) + sx * 3, 6 + wide * 3, mz + fz * (15 + wide * 3) + sz * 3];
+      look = [mx, 3.2 + W.hop * 0.5, mz];
+    }
+    this.camera.position.lerp(this.tmp.set(pos[0], pos[1], pos[2]), 1 - Math.exp(-3 * dt));
+    if (this.shake > 0 && !this.reduceMotion) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shake * 0.6;
+      this.camera.position.y += (Math.random() - 0.5) * this.shake * 0.6;
+      this.shake = Math.max(0, this.shake - dt * 2.4);
+    }
+    this.camLook.lerp(this.tmp.set(look[0], look[1], look[2]), 1 - Math.exp(-4 * dt));
+    this.camera.lookAt(this.camLook);
+  }
+
   private updateCamera(dt: number) {
+    if (this.sim.A.active && this.sim.A.state === 'calling') {
+      this.updateCallCamera(dt);
+      return;
+    }
     const k = this.focus();
     const A = this.sim.A;
     const big = this.asAllen && A.active;
@@ -2384,7 +2427,7 @@ export class Game {
       sim.projs,
       this.projViews,
       (p) => {
-        const mesh = p.kind === 'chopstick' ? makeChopsticks() : makeChiliGlob();
+        const mesh = p.kind === 'chopstick' ? makeChopsticks() : p.kind === 'cream' || p.kind === 'blob' ? makeCreamShot(p.kind === 'blob') : makeChiliGlob();
         mesh.rotation.y = Math.atan2(p.vx, p.vz);
         this.scene.add(mesh);
         return { mesh, friendly: false };
@@ -2392,7 +2435,8 @@ export class Game {
       (v, p) => {
         v.mesh.position.set(p.x, p.y, p.z);
         if (p.kind === 'chopstick') v.mesh.rotation.z += dt * 16;
-        else v.mesh.rotation.x += dt * 10;
+        else if (p.kind === 'cream') v.mesh.rotation.y = Math.atan2(p.vx, p.vz);
+        else v.mesh.rotation.x += dt * (p.kind === 'blob' ? 4 : 10);
         if (p.friendly && !v.friendly) {
           // a Riptide Parry turned it around: it glows and flies back at Allen
           v.friendly = true;
@@ -2409,9 +2453,9 @@ export class Game {
       this.puddleViews,
       (pd) => {
         const mat = new THREE.MeshBasicMaterial({
-          color: new THREE.Color(0xff3414).multiplyScalar(1.8),
+          color: pd.cream ? new THREE.Color(0xfbf6ec) : new THREE.Color(0xff3414).multiplyScalar(1.8),
           transparent: true,
-          opacity: 0.58,
+          opacity: pd.cream ? 0.85 : 0.58,
           depthWrite: false,
           polygonOffset: true,
           polygonOffsetFactor: -7,
@@ -2428,7 +2472,7 @@ export class Game {
         const fade = Math.min(1, pd.life / 1.1);
         const pulse = 1 + Math.sin(this.time * 9 + pd.x) * 0.04;
         v.mesh.scale.setScalar(pd.r * pulse);
-        v.mat.opacity = 0.56 * fade;
+        v.mat.opacity = (pd.cream ? 0.85 : 0.56) * fade;
       },
       (v) => {
         this.scene.remove(v.mesh);
@@ -2675,6 +2719,13 @@ export class Game {
           this.scene.add(m.root);
           return { m, ...makeRing(GUPPY_SWING.radius) };
         }
+        if (b.kind === 'earwhen') {
+          const m = makeEarwhen();
+          m.root.position.set(b.x, b.hop, b.z);
+          m.root.rotation.y = b.heading;
+          this.scene.add(m.root);
+          return { m, ring: null, ringFill: null };
+        }
         const m = this.makeBotModel(b.kind);
         m.root.position.set(b.x, 0, b.z);
         this.scene.add(m.root);
@@ -2686,9 +2737,89 @@ export class Game {
         if (v.ring) this.scene.remove(v.ring);
         v.m.hp.mat.dispose();
         if ('boots' in v.m) v.m.flash.dispose();
+        if ('cannon' in v.m) for (const mat of v.m.flashMats) mat.dispose();
         this.discard(v.m.root);
       },
     );
+  }
+
+  /** Earwhen: waddles, swings his cream cannon round to aim, and winds up each attack where you can see it. */
+  private animateEarwhen(m: EarwhenModel, b: EarwhenBot, T: number) {
+    m.root.position.set(b.x, b.hop, b.z);
+    m.root.rotation.y = b.heading;
+    let aim = b.aim - b.heading;
+    aim = Math.atan2(Math.sin(aim), Math.cos(aim));
+    m.cannon.rotation.y = clamp(aim, -0.9, 0.9);
+    const stride = b.moving ? Math.sin(b.ph) : 0;
+    let lean = 0;
+    let jaw = 1;
+    let recoil = 0;
+    let arms = -1.1;
+    let squash = 1;
+    let legs = stride * 0.5;
+    m.charge.visible = false;
+    switch (b.act) {
+      case 'arrive':
+        arms = -2.6;
+        legs = 0.7;
+        lean = 0.2;
+        jaw = 2;
+        break;
+      case 'sprayWind':
+        lean = -0.12;
+        recoil = Math.sin(T * 50) * 0.04;
+        break;
+      case 'spray':
+        lean = -0.08;
+        recoil = -0.1 + Math.sin(T * 60) * 0.06;
+        jaw = 1.8;
+        break;
+      case 'streamWind':
+        lean = -0.05;
+        break;
+      case 'stream':
+        recoil = -Math.abs(Math.sin(T * 28)) * 0.18;
+        jaw = 1.5;
+        break;
+      case 'blobWind': {
+        const p = clamp(b.mt / 1.3, 0, 1);
+        m.charge.visible = true;
+        m.charge.scale.setScalar(0.25 + p * 1.1 + Math.sin(T * 30) * 0.04 * p);
+        squash = 1 - p * 0.12;
+        lean = -0.1 * p;
+        break;
+      }
+      case 'blob':
+        lean = -0.3 * Math.max(0, 1 - b.mt / 0.4);
+        recoil = -0.35 * Math.max(0, 1 - b.mt / 0.3);
+        break;
+      case 'eating':
+        lean = 0.45;
+        jaw = 1 + Math.abs(Math.sin(T * 16)) * 2.2;
+        arms = -1.4 + Math.sin(T * 8) * 0.4;
+        break;
+      case 'stagger':
+        lean = -0.2 + Math.sin(T * 6) * 0.08;
+        jaw = 2.2;
+        arms = -0.4;
+        break;
+      default:
+        break;
+    }
+    m.pivot.rotation.x = lean;
+    m.pivot.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
+    m.pivot.position.y = b.moving ? Math.abs(stride) * 0.12 : 0;
+    m.legL.rotation.x = legs;
+    m.legR.rotation.x = -legs;
+    m.armL.rotation.x = arms;
+    m.armR.rotation.x = arms;
+    m.cannon.position.z = 1.0 + recoil;
+    m.jaw.scale.y = jaw;
+    m.stars.visible = b.act === 'stagger' || b.stun > 0;
+    if (m.stars.visible) m.stars.rotation.y = T * 5;
+    const f = b.flash > 0 ? 0.75 : 0;
+    const r = b.rage ? 0.18 + Math.sin(T * 8) * 0.08 : 0;
+    for (const mat of m.flashMats) mat.emissive.setRGB(f + r, f, f);
   }
 
   private makeBotModel(kind: BotKind): EnemyModel {
@@ -2707,6 +2838,10 @@ export class Game {
   }
 
   private animateBot(v: BotView, b: Bot, c: (typeof COURSES)[number], T: number, camQ: THREE.Quaternion) {
+    if (b.kind === 'earwhen') {
+      this.animateEarwhen(v.m as EarwhenModel, b, T);
+      return;
+    }
     if (b.kind === 'guppy') {
       const m = v.m as GuppyModel;
       const ring = v.ring!;
@@ -3026,6 +3161,22 @@ export class Game {
         aL = -2.95;
         jaw = 2.6;
         break;
+      case 'calling':
+        if (t < 2.4) {
+          // furious: stomping, fists up
+          aR = -2.7 + Math.sin(T * 14) * 0.25;
+          aL = -2.7 - Math.sin(T * 14) * 0.25;
+          leg = Math.sin(T * 12) * 0.35;
+          jaw = 2.6;
+          squash = 0.95;
+        } else {
+          // phone to his ear
+          aL = -2.9;
+          aR = -0.6 + Math.sin(T * 3) * 0.2;
+          head = 0.18;
+          jaw = 1 + Math.abs(Math.sin(T * 9)) * 1.2;
+        }
+        break;
       case 'ko':
         fall = Math.min(1, t * 1.8);
         aR = -0.4;
@@ -3051,6 +3202,7 @@ export class Game {
     const e = A.enraged ? 0.2 + Math.sin(T * 8) * 0.08 : 0;
     const x = A.exposed > 0 ? 0.24 + Math.sin(T * 14) * 0.12 : 0;
     for (const mat of m.flashMats) mat.emissive.setRGB(f + e, f + x, f + x * 1.5);
+    m.phone.visible = A.state === 'calling' && t >= 2.4;
     const dizzy = A.state === 'stunned' || A.state === 'defeated' || A.state === 'ko';
     m.stars.visible = dizzy;
     if (dizzy) m.stars.rotation.y = T * 5;
@@ -3238,12 +3390,14 @@ export class Game {
         tag = `Heading for the ${target.name}`;
         alert = true;
       } else if (A.state === 'stunned') tag = 'Stunned — hit him now!';
+      else if (A.state === 'calling') tag = 'Calling for backup';
       else if (A.state === 'defeated' || A.state === 'ko' || A.state === 'leaving') tag = 'Stuffed';
       else if (A.enraged) tag = 'Hangry';
       else tag = 'Pork belly enthusiast';
     }
     let objective = '';
     const allen = this.asAllen;
+    const W = sim.area === 'farm' ? sim.bots.find((b): b is EarwhenBot => b.kind === 'earwhen') ?? null : null;
     if (allen) {
       const standing = sim.living().length;
       objective = A.active
@@ -3259,7 +3413,8 @@ export class Game {
         sim.recruitedHogs.size < MAX_SQUAD
           ? 'Train combos with Trout at the lake, visit Rickley & Kingger, hunt hogs, then ring the bell'
           : `${left ? `${left} truffles on the farm · ` : ''}Train with Trout, visit Rickley & Kingger, then ring the Bell`;
-    } else if (A.active && A.shielded) objective = 'Allen is invincible! Smash every sauce jar before the timer runs out';
+    } else if (W && (!A.active || A.state === 'ko')) objective = 'Take down Earwhen: dodge the cream, punish his wind-ups';
+    else if (A.active && A.shielded) objective = 'Allen is invincible! Smash every sauce jar before the timer runs out';
     else if (A.active && alert) objective = 'Hit Allen to interrupt his meal!';
     else objective = 'Dodge, punish his recoveries, protect the farm';
 
@@ -3272,8 +3427,8 @@ export class Game {
       mode: sim.mode,
       area: sim.area,
       course: ci,
-      courseName: COURSES[ci].name,
-      courseCount: COURSES.length,
+      courseName: sim.course >= FINALE ? EARWHEN.name : COURSES[ci].name,
+      courseCount: sim.course >= FINALE ? FINALE + 1 : COURSES.length,
       hp: Math.ceil(k.hp),
       maxHp: k.maxHp,
       stam: k.stam,
@@ -3308,6 +3463,28 @@ export class Game {
         guarding: A.state === 'guard',
         exposed: A.exposed > 0,
       },
+      earwhen: W
+        ? {
+            hp: Math.max(0, W.hp),
+            maxHp: W.maxHp,
+            alert: W.act === 'eating' || W.act === 'toEat',
+            tag:
+              W.act === 'stagger'
+                ? 'Staggered — pile on!'
+                : W.act === 'eating' || W.act === 'toEat'
+                  ? 'Snack break — stop him!'
+                  : W.act === 'sprayWind' || W.act === 'spray'
+                    ? 'Cream Spray — get out of the cone!'
+                    : W.act === 'streamWind' || W.act === 'stream'
+                      ? 'Cream Stream — keep moving!'
+                      : W.act === 'blobWind' || W.act === 'blob'
+                        ? 'Mega Dollop — watch the white ring!'
+                        : W.rage
+                          ? 'ENRAGED'
+                          : 'Cream enthusiast',
+          }
+        : null,
+      cinematic: A.active && A.state === 'calling',
       prompt: this.asAllen ? sim.allenPrompt : k.prompt,
       subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : null,
       opening: sim.opening ? { step: sim.opening.step, total: OPENING_BEATS } : null,
@@ -3539,6 +3716,10 @@ export class Game {
     dot(SPOT.charig.x, SPOT.charig.z, 5, '#2f9e6b', '#fbf3df');
     for (const pd of sim.puddles) dot(pd.x, pd.z, 4.5, 'rgba(235,52,24,0.45)');
     for (const b of sim.bots) {
+      if (b.kind === 'earwhen') {
+        dot(b.x, clamp(b.z, -60, 60), 7, '#6fb7e8', '#ffffff');
+        continue;
+      }
       const col =
         b.kind === 'tenderizer'
           ? '#f8f6f0'

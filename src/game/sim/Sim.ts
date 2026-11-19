@@ -3,7 +3,7 @@
  * rendering, DOM or audio. The browser view (../Game.ts) and a future multiplayer server both drive it by
  * calling `step(dt, inputs)` and presenting `drainEvents()` plus the public state.
  */
-import { COURSES, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
+import { COURSES, EARWHEN, FINALE, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
 import type { SfxName } from '../audio';
 import {
   BOUND,
@@ -32,6 +32,7 @@ import {
   type Area,
   type Bot,
   type Decoy,
+  type EarwhenBot,
   type Hazard,
   type Kernel,
   type KitchenBot,
@@ -892,7 +893,8 @@ export class Sim {
 
   private beginCourse() {
     if (this.area !== 'farm' || this.mode !== 'intermission' || this.hunt) return;
-    const c = COURSES[this.course];
+    const finale = this.course >= FINALE;
+    const c = COURSES[Math.min(this.course, COURSES.length - 1)];
     const A = this.A;
     // Purge any still-animating fallen hogs before snapshotting survivors
     this.allies = this.allies.filter((a) => !(a.dying > 0 || a.hp <= 0));
@@ -940,8 +942,17 @@ export class Sim {
     this.barkT = 10;
     this.sound('bell');
     this.events.push({ t: 'bell' });
-    this.showBanner(`COURSE ${this.course + 1}/${COURSES.length} · ${c.name.toUpperCase()}`, c.newFoe ?? 'Allen B. Hwang is at the gate');
-    this.say('Allen', c.intro, 4.4);
+    if (finale) {
+      // a battered Allen, with backup
+      A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * EARWHEN.allenHp);
+      A.phases = 1;
+      this.spawnEarwhen(5, 78, 4.5, 58);
+      this.showBanner(`FINAL COURSE · ${EARWHEN.name.toUpperCase()}`, 'Allen brought backup');
+      this.say('Allen', 'EARWHEN! Cream them!', 4.4);
+    } else {
+      this.showBanner(`COURSE ${this.course + 1}/${COURSES.length} · ${c.name.toUpperCase()}`, c.newFoe ?? 'Allen B. Hwang is at the gate');
+      this.say('Allen', c.intro, 4.4);
+    }
     this.events.push({ t: 'lookAt', x: A.x, z: 60 });
   }
 
@@ -957,11 +968,15 @@ export class Sim {
     A.exposed = 0;
     this.clearStageProps();
     this.setA('defeated');
-    for (const b of this.bots) this.fx.emit(b.x, 1, b.z, 12, 0xff7a1a, 8, 0.3, 0.6);
-    this.bots = [];
-    this.projs = [];
-    this.puddles = [];
+    // in the finale Earwhen fights on, cream and all
+    const finale = this.course >= FINALE;
+    const keep = (b: Bot) => finale && b.kind === 'earwhen';
+    for (const b of this.bots) if (!keep(b)) this.fx.emit(b.x, 1, b.z, 12, 0xff7a1a, 8, 0.3, 0.6);
+    this.bots = this.bots.filter(keep);
+    this.projs = finale ? this.projs.filter((p) => p.kind === 'cream' || p.kind === 'blob') : [];
+    this.puddles = finale ? this.puddles.filter((p) => p.cream) : [];
     const last = this.course >= COURSES.length - 1;
+    const W = this.earwhen();
     const farm = this.farmPct();
     const bonus = 28 + 14 * this.course + Math.round(farm / 6);
     this.truffles += bonus;
@@ -974,12 +989,22 @@ export class Sim {
     this.fx.shockWall(A.x, 0.1, A.z, 0x7df9ff, 1.2, 8.5, 2.0, 5.2, 0.52, -7);
     this.fx.sparks(A.x, 3, A.z, 55, 0xffd23f, 18, 0.24, 0.9, { grav: 14, up: 1.0, hdr: 4.5, stretch: 5.2, altColor: 0xff7a1a });
     this.fx.dustRing(A.x, 0.1, A.z, 16, 1.6, 0xe8d9be, 10, 2.6, 0.95);
-    this.say('Allen', last ? "Fine… FINE! I'll… I'll try the tofu." : this.pick(["I'll be back with hotter woks!", "This isn't over, bacon!", 'Next course is gonna HURT, Kenji!']), 4.5);
     const lossNote = this.courseFallen > 0 ? ` · ${this.courseFallen} hog${this.courseFallen > 1 ? 's' : ''} fallen` : '';
-    this.showBanner(last ? 'THE GRAND FEAST IS OVER' : 'COURSE CLEARED', `+${bonus} truffles · farm ${Math.round(farm)}%${lossNote}`);
+    if (finale) {
+      this.say('Allen', W ? 'Earwhen… finish them… for me…' : 'Fine… FINE! I\'ll… I\'ll try the tofu.', 4);
+      if (W) {
+        W.rage = true;
+        this.floatText(W.x, 5, W.z, 'ENRAGED!', 'hurt');
+      }
+      this.showBanner('ALLEN IS DOWN', W ? `+${bonus} truffles · now take down Earwhen!` : `+${bonus} truffles · farm ${Math.round(farm)}%${lossNote}`);
+    } else {
+      this.say('Allen', last ? "No. NO! I am NOT trying the tofu!" : this.pick(["I'll be back with hotter woks!", "This isn't over, bacon!", 'Next course is gonna HURT, Kenji!']), last ? 2.6 : 4.5);
+      this.showBanner(last ? 'THE GRAND FEAST IS OVER' : 'COURSE CLEARED', last ? '…or is it?' : `+${bonus} truffles · farm ${Math.round(farm)}%${lossNote}`);
+    }
   }
 
   private endCourse() {
+    this.bots = this.bots.filter((b) => b.kind !== 'earwhen');
     this.allenBreak = 20;
     this.A.active = false;
     this.A.state = 'gone';
@@ -991,6 +1016,11 @@ export class Sim {
     this.healSurvivors(18);
     this.scatterTruffles(7);
     this.greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
+    if (this.course === FINALE) {
+      this.showBanner('BACKUP IS ON THE WAY', 'Allen called Earwhen · gear up, then ring the bell for the final course');
+      this.say('Kingger', 'Earwhen?! He fires whipped cream at four hundred PSI. Upgrade. EVERYTHING.', 5.5);
+      return;
+    }
     this.say(
       this.course === 1 ? 'Trout' : 'Kingger',
       this.course === 1
@@ -2318,7 +2348,7 @@ export class Sim {
     this.floatText(px, 3, pz, 'NOCLIP!', 'info');
     let sent = 0;
     this.bots = this.bots.filter((b) => {
-      if (b.kind === 'guppy' || Math.hypot(b.x - px, b.z - pz) > R) return true;
+      if (b.kind === 'guppy' || b.kind === 'earwhen' || Math.hypot(b.x - px, b.z - pz) > R) return true;
       sent++;
       this.stats.ko++;
       this.fx.sparks(b.x, 1, b.z, 10, 0xe8d97a, 6, 0.15, 0.5, { up: 1, grav: -4, hdr: 3 });
@@ -2327,7 +2357,7 @@ export class Sim {
     this.projs = this.projs.filter((o) => o.friendly || Math.hypot(o.x - px, o.z - pz) > R);
     this.puddles = this.puddles.filter((o) => Math.hypot(o.x - px, o.z - pz) > R);
     if (sent) this.floatText(px, 4, pz, `${sent} sent to the Backrooms`, 'crit');
-    if (lv >= 2 && A.active && !A.shielded && Math.hypot(A.x - px, A.z - pz) < R + 2 && !['gone', 'defeated', 'leaving', 'ko', 'backrooms', 'enter'].includes(A.state)) {
+    if (lv >= 2 && A.active && !A.shielded && Math.hypot(A.x - px, A.z - pz) < R + 2 && !['gone', 'defeated', 'leaving', 'ko', 'calling', 'backrooms', 'enter'].includes(A.state)) {
       this.fx.flash(A.x, 2, A.z, 0xe8d97a, 14, 0.4, 16);
       this.setA('backrooms');
       A.backroomsT = 4;
@@ -2409,7 +2439,7 @@ export class Sim {
   /** Allen within phone-shoving range in front of this pig. */
   private smashTarget(p: Player): boolean {
     const A = this.A;
-    if (!A.active || A.shielded || ['gone', 'defeated', 'leaving', 'ko', 'backrooms', 'enter', 'spin', 'slamAir'].includes(A.state)) return false;
+    if (!A.active || A.shielded || ['gone', 'defeated', 'leaving', 'ko', 'calling', 'backrooms', 'enter', 'spin', 'slamAir'].includes(A.state)) return false;
     return Math.hypot(A.x - p.x, A.z - p.z) < 6.5;
   }
 
@@ -2523,7 +2553,7 @@ export class Sim {
     for (const b of this.bots) {
       if (b.hp > 0) pool.push({ kind: 'bot', x: b.x, y: b.kind === 'tenderizer' ? 1.8 : 1.15, z: b.z, bot: b });
     }
-    if (A.active && A.hp > 0 && !A.shielded && A.state !== 'spin' && !['gone', 'defeated', 'leaving', 'ko'].includes(A.state)) {
+    if (A.active && A.hp > 0 && !A.shielded && A.state !== 'spin' && !['gone', 'defeated', 'leaving', 'ko', 'calling'].includes(A.state)) {
       pool.push({ kind: 'allen', x: A.x, y: A.y + 2.8, z: A.z });
     }
     if (this.area === 'farm' && this.mode === 'intermission') {
@@ -2810,7 +2840,7 @@ export class Sim {
   private stunAllen(dur: number, force: boolean) {
     const A = this.A;
     if (!A.active || A.hp <= 0) return;
-    if (['defeated', 'leaving', 'ko', 'gone', 'slamAir', 'spin', 'backrooms'].includes(A.state) || A.shielded) return;
+    if (['defeated', 'leaving', 'ko', 'calling', 'gone', 'slamAir', 'spin', 'backrooms'].includes(A.state) || A.shielded) return;
     if (!force && A.stunImmune > 0) {
       this.floatText(A.x, 5.2, A.z, 'RESISTED', 'info');
       return;
@@ -2873,7 +2903,7 @@ export class Sim {
    */
   private damageAllen(dmg: number, poise: number, o: { heavy?: boolean; minor?: boolean; fx?: number; fz?: number; by?: Player } = {}): boolean {
     const A = this.A;
-    if (!A.active || ['gone', 'defeated', 'leaving', 'ko', 'backrooms'].includes(A.state)) return false;
+    if (!A.active || ['gone', 'defeated', 'leaving', 'ko', 'calling', 'backrooms'].includes(A.state)) return false;
     const srcX = o.fx ?? o.by?.x ?? A.x + Math.sin(A.heading) * 3;
     const srcZ = o.fz ?? o.by?.z ?? A.z + Math.cos(A.heading) * 3;
     if (A.shielded) {
@@ -3395,7 +3425,7 @@ export class Sim {
     const maxBots = this.maxBots();
 
     // Kitchen reinforcement stream keeps pressure high across every stage!
-    if (!kDead && A.hp > 0 && !['enter', 'defeated', 'leaving', 'ko'].includes(A.state)) {
+    if (!kDead && A.hp > 0 && !['enter', 'defeated', 'leaving', 'ko', 'calling'].includes(A.state)) {
       this.waveT -= dt;
       if (this.waveT <= 0) {
         this.waveT = c.waveCd * (A.enraged ? 0.8 : 1);
@@ -3878,7 +3908,8 @@ export class Sim {
       }
       case 'defeated': {
         if (A.t >= 1.6) {
-          if (this.course >= COURSES.length - 1) this.setA('ko');
+          if (this.course >= FINALE) this.setA('ko');
+          else if (this.course >= COURSES.length - 1) this.setA('calling');
           else {
             A.sx = A.x;
             A.sz = A.z;
@@ -3897,8 +3928,13 @@ export class Sim {
         if (p >= 1) this.endCourse();
         break;
       }
+      case 'calling': {
+        this.updateBackupCall(A.t - dt, A.t);
+        break;
+      }
       case 'ko': {
-        if (A.t >= 3.4 && !this.outcome) {
+        // in the finale, the farm is only safe once Earwhen is down too
+        if (A.t >= 3.4 && !this.outcome && !this.earwhen()) {
           this.outcome = 'victory';
           this.sound('win');
           this.dirty = true;
@@ -4036,6 +4072,10 @@ export class Sim {
 
   private damageBot(b: Bot, dmg: number, kx: number, kz: number, heavy = false) {
     if (b.hp <= 0) return;
+    if (b.kind === 'earwhen') {
+      this.hitEarwhen(b, dmg, kx, kz, heavy);
+      return;
+    }
     const d = Math.max(1, Math.round(dmg));
     b.hp -= d;
     b.flash = 0.12;
@@ -4099,6 +4139,422 @@ export class Sim {
     }
   }
 
+  /* ───────────────────────── Earwhen (the finale) ───────────────────────── */
+
+  /** Earwhen, if he's on the farm. */
+  earwhen(): EarwhenBot | null {
+    for (const b of this.bots) if (b.kind === 'earwhen' && b.hp > 0) return b;
+    return null;
+  }
+
+  /** Earwhen leaps over the fence from (fx, fz) and lands at (tx, tz). */
+  private spawnEarwhen(fx: number, fz: number, tx: number, tz: number) {
+    this.bots = this.bots.filter((b) => b.kind !== 'earwhen');
+    const hp = Math.round(EARWHEN.hp * this.hpScale());
+    this.bots.push({
+      id: this.id(),
+      kind: 'earwhen',
+      act: 'arrive',
+      x: fx, z: fz, hp, maxHp: hp, rad: 1.5, heading: Math.atan2(tx - fx, tz - fz),
+      bite: 1.5, stun: 0, kx: 0, kz: 0, chomp: 0, flash: 0, ph: 0,
+      mode: 'idle', mt: 0, lx: fx, lz: fz, strafe: this.rnd() < 0.5 ? -1 : 1, hop: 0, moving: false, swing: 0,
+      aim: Math.atan2(tx - fx, tz - fz), cdSpray: 1.5, cdStream: 3, cdBlob: 5, hunger: EARWHEN.hunger, target: -1, shots: 0, poise: 0,
+      tx, tz, rage: false,
+    });
+    this.sound('jump');
+  }
+
+  /**
+   * The story moment after the Grand Feast: Allen, furious, phones Earwhen, who leaps in over the fence.
+   * `was` and `now` are Allen's state clock before and after this step, so each line fires once.
+   */
+  private updateBackupCall(was: number, now: number) {
+    const A = this.A;
+    const at = (t: number) => was < t && now >= t;
+    A.y = 0;
+    if (at(0.05)) {
+      // turn to face into the farm, with the gate (and Earwhen's leap) behind him
+      A.heading = PI;
+      this.sound('roar');
+      this.addShake(0.6);
+      this.fx.shockWall(A.x, 0.1, A.z, 0xff5a1a, 1, 8, 0.8, 3, 0.6, 5);
+      this.say('Allen', "No. NO! I am NOT trying the tofu!", 2.4);
+    }
+    if (at(2.5)) {
+      this.sound('pop');
+      this.say('Allen', "*dials* Earwhen? It's me. Bring the cream cannon. The BIG one.", 3.2);
+    }
+    if (at(4.6)) {
+      const tx = clamp(A.x + 4.5, -BOUND + 4, BOUND - 4);
+      const tz = clamp(A.z - 2, -BOUND + 4, 52);
+      this.spawnEarwhen(tx + 2, 78, tx, tz);
+    }
+    if (at(6.3)) this.say('Earwhen', 'Did somebody say… DINNER?', 3);
+    if (at(8.6)) this.say('Allen', "Next course, bacon. You're getting WHIPPED.", 3);
+    if (now >= 10.6) this.endCourse();
+  }
+
+  private hitEarwhen(b: EarwhenBot, dmg: number, kx: number, kz: number, heavy: boolean) {
+    // untouchable while he's leaping in, and during the story moment
+    if (b.act === 'arrive' || this.A.state === 'calling') return;
+    const d = Math.max(1, Math.round(dmg));
+    b.hp -= d;
+    b.flash = 0.12;
+    this.stats.dealt += Math.min(d, Math.max(0, Math.ceil(b.hp + d)));
+    b.kx = kx * 0.12;
+    b.kz = kz * 0.12;
+    this.floatText(b.x + this.rand(-0.4, 0.4), 4.4, b.z, String(d), heavy ? 'crit' : 'dmg');
+    this.fx.hitBurst(b.x, 2.6, b.z, 0xfff1d6, 1.1);
+    if (b.hp <= 0) {
+      this.earwhenDown(b);
+      return;
+    }
+    // enough punishment staggers him, even mid-attack
+    b.poise += d * (heavy ? 1.5 : 1);
+    const poiseMax = 300 * (1 + 0.25 * Math.max(0, this.players.length - 1));
+    if (b.poise >= poiseMax && b.act !== 'stagger') {
+      b.poise = 0;
+      b.act = 'stagger';
+      b.mt = 0;
+      b.target = -1;
+      this.sound('stun');
+      this.floatText(b.x, 5.2, b.z, 'STAGGERED!', 'crit');
+      this.fx.sparks(b.x, 4.4, b.z, 16, 0xffd23f, 6, 0.15, 0.7, { up: 1, grav: 4, hdr: 3 });
+    }
+  }
+
+  private earwhenDown(b: EarwhenBot) {
+    this.bots = this.bots.filter((o) => o !== b);
+    this.stats.ko++;
+    this.sound('bighit');
+    this.sound('splash');
+    this.hitstop = 0.25;
+    this.addShake(1);
+    this.fx.hitBurst(b.x, 2.6, b.z, 0xfffaf0, 2.4);
+    this.fx.shockWall(b.x, 0.1, b.z, 0xfffaf0, 1.6, 11, 1.2, 4, 0.6, 5);
+    this.fx.sparks(b.x, 3, b.z, 50, 0xfffaf0, 14, 0.22, 0.9, { up: 1, grav: 12, hdr: 1.3, altColor: 0xffd23f });
+    this.fx.groundMark(b.x, 0, b.z, 4.5, 'splash', 0xfffaf0, 4);
+    for (let i = 0; i < 5; i++) this.spawnTruffle(b.x, b.z, true);
+    this.say('Earwhen', 'My… cream… has… curdled…', 3.6);
+    const A = this.A;
+    if (A.state === 'ko') {
+      A.t = 0; // the farm is saved a moment from now
+      this.showBanner('EARWHEN IS DOWN', 'The feast is finally over');
+    } else if (A.active && A.hp > 0) {
+      A.tilt = Math.max(A.tilt, 12);
+      this.showBanner('EARWHEN IS DOWN', 'Just Allen left, and he is LIVID');
+      this.say('Allen', 'EARWHEN! …Fine. I will eat you MYSELF!', 3.6);
+    }
+    this.dirty = true;
+  }
+
+  /** A Mega Dollop lands: a big white splash, and a cream puddle left behind. */
+  private creamSplash(x: number, z: number, dmg: number) {
+    const R = 3.6;
+    this.sound('splash');
+    this.addShake(0.4);
+    this.fx.hitBurst(x, 0.8, z, 0xfffaf0, 1.6);
+    this.fx.shockWall(x, 0.08, z, 0xfffaf0, 0.8, R * 1.1, 0.9, 2.6, 0.45, 6);
+    this.fx.sparks(x, 0.6, z, 26, 0xfffaf0, 10, 0.2, 0.6, { up: 1, grav: 16, hdr: 1.2 });
+    this.fx.groundMark(x, 0, z, R, 'splash', 0xfffaf0, 3);
+    this.hurtPlayersNear(x, z, R, 2.4, dmg, x, z, 14);
+    this.hitAlliesNear(x, z, R, dmg * 0.9);
+    this.spawnPuddle(x, z, dmg * 0.22, true);
+  }
+
+  private updateEarwhen(b: EarwhenBot, dt: number) {
+    const A = this.A;
+    b.mt += dt;
+    b.chomp = Math.max(0, b.chomp - dt);
+    if (b.act === 'arrive') {
+      const p = Math.min(1, b.mt / 1.3);
+      b.x = lerp(b.lx, b.tx, p);
+      b.z = lerp(b.lz, b.tz, p);
+      b.hop = Math.sin(p * PI) * 11;
+      b.heading = Math.atan2(b.tx - b.lx, b.tz - b.lz);
+      b.aim = b.heading;
+      if (p >= 1) {
+        b.hop = 0;
+        b.act = 'stalk';
+        b.mt = 0;
+        this.sound('slam');
+        this.addShake(0.8);
+        this.fx.dustRing(b.x, 0.1, b.z, 16, 1.4, 0xe8d9be, 9, 2.4, 0.8);
+        this.fx.shockWall(b.x, 0.1, b.z, 0xfffaf0, 1, 7, 0.8, 2.6, 0.5, 5);
+        this.fx.sparks(b.x, 1, b.z, 30, 0xfffaf0, 10, 0.2, 0.7, { up: 1, grav: 14, hdr: 1.2 });
+        if (A.state !== 'calling') this.hurtPlayersNear(b.x, b.z, 3.4, 1.5, 12 * EARWHEN.dmg, b.x, b.z, 14);
+      }
+      return;
+    }
+    b.hop = 0;
+    b.moving = false;
+    // during the story moment he just poses next to Allen
+    if (A.state === 'calling') {
+      b.heading = angLerp(b.heading, PI, 3 * dt);
+      b.aim = b.heading;
+      return;
+    }
+    const rage = b.rage ? 0.7 : 1;
+    const dm = EARWHEN.dmg * (b.rage ? 1.2 : 1);
+    b.cdSpray -= dt;
+    b.cdStream -= dt;
+    b.cdBlob -= dt;
+    b.hunger -= dt;
+    const anyAlive = this.living().length > 0;
+    if (!anyAlive || this.overReason || this.mode !== 'combat') return;
+    // stuns barely slow him down
+    b.stun = Math.min(b.stun, 0.5);
+    if (b.stun > 0) return;
+    const tgt = this.pickBotTarget(b, 0.95);
+    const dx = tgt.x - b.x;
+    const dz = tgt.z - b.z;
+    const d = Math.hypot(dx, dz) || 0.001;
+    const toT = Math.atan2(dx, dz);
+    const nozzle = () => ({ x: b.x + Math.sin(b.aim) * 2.1, z: b.z + Math.cos(b.aim) * 2.1 });
+    const walk = (mx: number, mz: number, sp: number) => {
+      const l = Math.hypot(mx, mz);
+      if (l < 0.01) return;
+      b.x += (mx / l) * sp * dt;
+      b.z += (mz / l) * sp * dt;
+      b.moving = true;
+      b.ph += dt * sp * 1.1;
+    };
+
+    switch (b.act) {
+      case 'stagger': {
+        if (b.mt >= 1.8) {
+          b.act = 'stalk';
+          b.mt = 0;
+          b.bite = 0.6;
+        }
+        break;
+      }
+      case 'stalk': {
+        b.heading = angLerp(b.heading, toT, 6 * dt);
+        b.aim = angLerp(b.aim, toT, 6 * dt);
+        // keeps to mid-range, circling
+        if (d > 10) walk(dx, dz, EARWHEN.speed);
+        else if (d < 5) walk(-dx, -dz, EARWHEN.speed * 0.8);
+        else walk(-dz * b.strafe, dx * b.strafe, EARWHEN.speed * 0.6);
+        if (this.rnd() < dt * 0.04 && !this.subtitle)
+          this.say('Earwhen', this.pick(['Hold still, I need to frost you.', 'Extra cream? Extra cream.', 'You smell like a pork bun.', 'Allen said you were crunchy.']), 2.8);
+        if (b.hunger <= 0) {
+          let best = -1;
+          let bd = Infinity;
+          this.edibles.forEach((e, i) => {
+            const ed = Math.hypot(e.x - b.x, e.z - b.z);
+            if (e.hp > 0 && ed < bd) {
+              bd = ed;
+              best = i;
+            }
+          });
+          if (best >= 0) {
+            b.target = best;
+            b.act = 'toEat';
+            b.mt = 0;
+            this.say('Earwhen', this.pick(['Hang on. Snack break.', 'Is that… a pie?', 'All this spraying makes me hungry.']), 2.6);
+            break;
+          }
+          b.hunger = EARWHEN.hunger;
+        }
+        if (b.bite > 0) break;
+        // whichever attack in range has been waiting longest (point-blank, he favours the spray)
+        const opts: ['spray' | 'stream' | 'blob', number][] = [];
+        if (d < 10 && b.cdSpray <= 0) opts.push(['spray', b.cdSpray - (d < 6 ? 2 : 0)]);
+        if (d < 22 && b.cdStream <= 0) opts.push(['stream', b.cdStream]);
+        if (d < 26 && b.cdBlob <= 0) opts.push(['blob', b.cdBlob]);
+        if (!opts.length) break;
+        opts.sort((x, y) => x[1] - y[1]);
+        const pick = opts[0][0];
+        b.mt = 0;
+        b.shots = 0;
+        if (pick === 'spray') {
+          b.act = 'sprayWind';
+          this.sound('hiss');
+          this.floatText(b.x, 5, b.z, 'CREAM SPRAY!', 'hurt');
+        } else if (pick === 'stream') {
+          b.act = 'streamWind';
+          this.sound('clang');
+          this.floatText(b.x, 5, b.z, 'CREAM STREAM!', 'hurt');
+        } else {
+          b.act = 'blobWind';
+          this.sound('hiss');
+          this.floatText(b.x, 5, b.z, 'MEGA DOLLOP!', 'hurt');
+        }
+        break;
+      }
+      case 'sprayWind': {
+        b.heading = angLerp(b.heading, toT, 8 * dt);
+        b.aim = angLerp(b.aim, toT, 8 * dt);
+        const n = nozzle();
+        if (this.rnd() < dt * 20) this.fx.sparks(n.x, 2.1, n.z, 1, 0xfffaf0, 2, 0.12, 0.3, { up: 1, grav: -2, hdr: 1.2 });
+        if (b.mt >= 0.65 * rage + 0.15) {
+          b.act = 'spray';
+          b.mt = 0;
+          b.shots = 0;
+          this.sound('hiss');
+        }
+        break;
+      }
+      case 'spray': {
+        // the wide one: a cone of cream that sweeps slowly after you
+        b.aim = angLerp(b.aim, toT, 1.5 * dt);
+        b.heading = b.aim;
+        const n = nozzle();
+        const fx = Math.sin(b.aim);
+        const fz = Math.cos(b.aim);
+        if (this.rnd() < dt * 26) this.fx.sparks(n.x, 2.0, n.z, 4, 0xfffaf0, 16, 0.24, 0.5, { dirX: fx, dirZ: fz, focus: 0.5, grav: 7, hdr: 1.2, altColor: 0xfff0d0 });
+        const tick = Math.floor(b.mt / 0.22);
+        if (tick !== b.shots) {
+          b.shots = tick;
+          const R = 9.5;
+          const HALF = 0.55;
+          for (const p of this.players) {
+            const px = p.x - b.x;
+            const pz = p.z - b.z;
+            const pd = Math.hypot(px, pz);
+            if (pd > R || p.y > 2.6) continue;
+            const off = Math.abs(Math.atan2(Math.sin(Math.atan2(px, pz) - b.aim), Math.cos(Math.atan2(px, pz) - b.aim)));
+            if (off < HALF) this.hurtPlayer(p, 4.2 * dm, b.x, b.z, 6);
+          }
+          for (const a of this.allies) {
+            if (a.dying > 0 || a.hp <= 0) continue;
+            const ax = a.x - b.x;
+            const az = a.z - b.z;
+            const off = Math.abs(Math.atan2(Math.sin(Math.atan2(ax, az) - b.aim), Math.cos(Math.atan2(ax, az) - b.aim)));
+            if (Math.hypot(ax, az) < R && off < HALF) this.hurtAlly(a, 3.6 * dm);
+          }
+        }
+        if (b.mt >= 1.5) {
+          b.act = 'stalk';
+          b.mt = 0;
+          b.cdSpray = 6.5 * rage;
+          b.bite = 1.1 * rage;
+        }
+        break;
+      }
+      case 'streamWind': {
+        b.heading = angLerp(b.heading, toT, 8 * dt);
+        b.aim = angLerp(b.aim, toT, 8 * dt);
+        if (b.mt >= 0.45 * rage + 0.1) {
+          b.act = 'stream';
+          b.mt = 0;
+          b.shots = 0;
+        }
+        break;
+      }
+      case 'stream': {
+        // the middle one: a rapid line of cream pellets, leading his target
+        const pk = tgt.player;
+        const ax = pk ? pk.x + pk.vx * 0.25 : tgt.x;
+        const az = pk ? pk.z + pk.vz * 0.25 : tgt.z;
+        b.aim = angLerp(b.aim, Math.atan2(ax - b.x, az - b.z), 5 * dt);
+        b.heading = b.aim;
+        const due = Math.floor(b.mt / 0.11);
+        if (due > b.shots && b.shots < 12) {
+          b.shots++;
+          const n = nozzle();
+          const spread = this.rand(-0.05, 0.05);
+          const sp = 26;
+          this.projs.push({
+            id: this.id(), x: n.x, y: 1.7, z: n.z,
+            vx: Math.sin(b.aim + spread) * sp, vy: 0, vz: Math.cos(b.aim + spread) * sp,
+            life: 1.1, dmg: 3.4 * dm, kind: 'cream',
+          });
+          if (b.shots % 3 === 1) this.sound('throw');
+        }
+        if (b.shots >= 12 && b.mt > 1.45) {
+          b.act = 'stalk';
+          b.mt = 0;
+          b.cdStream = 5.5 * rage;
+          b.bite = 1.0 * rage;
+        }
+        break;
+      }
+      case 'blobWind': {
+        // the concentrated one: charges a huge dollop, then lobs it where you're headed
+        b.heading = angLerp(b.heading, toT, 5 * dt);
+        b.aim = angLerp(b.aim, toT, 5 * dt);
+        const n = nozzle();
+        if (this.rnd() < dt * 30) this.fx.motes(n.x, 2.2, n.z, 1, 0xfffaf0, 2.5, 0.2, 0.4, 3, 4, 1.2, 1.2);
+        if (b.mt >= 1.1 * rage + 0.2) {
+          const pk = tgt.player;
+          const tx = clamp(pk ? pk.x + pk.vx * 0.5 : tgt.x, -BOUND + 2, BOUND - 2);
+          const tz = clamp(pk ? pk.z + pk.vz * 0.5 : tgt.z, -BOUND + 2, BOUND - 2);
+          const flight = clamp(Math.hypot(tx - n.x, tz - n.z) / 16, 0.6, 1.25);
+          const y0 = 2.4;
+          this.projs.push({
+            id: this.id(), x: n.x, y: y0, z: n.z,
+            vx: (tx - n.x) / flight, vy: (0.3 - y0 + 0.5 * 22 * flight * flight) / flight, vz: (tz - n.z) / flight,
+            life: flight + 0.4, dmg: 19 * dm, kind: 'blob',
+          });
+          // a white ring shows where it lands
+          this.fx.groundMark(tx, 0, tz, 3.6, 'splash', 0xfffaf0, flight + 0.2);
+          this.sound('pop');
+          this.sound('throw');
+          b.act = 'blob';
+          b.mt = 0;
+        }
+        break;
+      }
+      case 'blob': {
+        if (b.mt >= 0.7) {
+          b.act = 'stalk';
+          b.mt = 0;
+          b.cdBlob = 7 * rage;
+          b.bite = 0.9 * rage;
+        }
+        break;
+      }
+      case 'toEat': {
+        const e = this.edibles[b.target];
+        if (!e || e.hp <= 0) {
+          b.act = 'stalk';
+          b.target = -1;
+          b.hunger = EARWHEN.hunger * 0.5;
+          break;
+        }
+        const ex = e.x - b.x;
+        const ez = e.z - b.z;
+        b.heading = angLerp(b.heading, Math.atan2(ex, ez), 6 * dt);
+        b.aim = b.heading;
+        if (Math.hypot(ex, ez) > e.r + 1.8) walk(ex, ez, EARWHEN.speed * 1.15);
+        else {
+          b.act = 'eating';
+          b.mt = 0;
+        }
+        break;
+      }
+      case 'eating': {
+        const e = this.edibles[b.target];
+        if (!e) {
+          b.act = 'stalk';
+          break;
+        }
+        e.hp = Math.max(0, e.hp - EARWHEN.eatRate * dt);
+        this.refreshEdible(e);
+        if (b.chomp <= 0) {
+          b.chomp = 0.3;
+          this.sound('chomp');
+          this.fx.emit(b.x + Math.sin(b.heading) * 1.6, 3.4, b.z + Math.cos(b.heading) * 1.6, 4, e.crumb, 5, 0.22, 0.6);
+        }
+        if (this.farmPct() <= 0.01) this.gameOver('farm');
+        if (e.hp <= 0 || b.mt > 5) {
+          if (e.hp <= 0) this.floatText(e.x, 3, e.z, `${e.name.toUpperCase()} EATEN!`, 'hurt');
+          b.hunger = EARWHEN.hunger;
+          b.target = -1;
+          b.act = 'stalk';
+          b.mt = 0;
+          b.bite = 0.8;
+        }
+        break;
+      }
+    }
+    const r = this.resolve(b.x, b.z, b.rad);
+    b.x = clamp(r.x, -BOUND, BOUND);
+    b.z = clamp(r.z, -BOUND, BOUND);
+  }
+
   /** Kettle Bomber fuse reaches zero: huge fiery steam blast hurting pigs, hogs, and even nearby bots/jars! */
   private detonateBomber(b: Bot, dmgMul: number) {
     if (b.hp <= 0) return;
@@ -4145,10 +4601,11 @@ export class Sim {
     return { x: bestX, z: bestZ, player: bestAlly ? null : k ?? null, ally: bestAlly };
   }
 
-  private spawnPuddle(x: number, z: number, dmg: number) {
+  private spawnPuddle(x: number, z: number, dmg: number, cream = false) {
     // cap active chili puddles for crisp readability & performance
     while (this.puddles.length >= 6) this.puddles.shift();
-    this.puddles.push({ id: this.id(), x, z, r: 2.75, life: 5.2, maxLife: 5.2, tick: 0.25, dmg });
+    this.puddles.push({ id: this.id(), x, z, r: cream ? 3.1 : 2.75, life: cream ? 6 : 5.2, maxLife: cream ? 6 : 5.2, tick: 0.25, dmg, cream });
+    if (cream) return;
     this.sound('sizzle');
     this.fx.sparks(x, 0.35, z, 14, 0xff4a1a, 8, 0.16, 0.4, { grav: 16, up: 0.85, hdr: 3.8, altColor: 0xffc83d });
   }
@@ -4161,7 +4618,8 @@ export class Sim {
       if (this.rnd() < dt * 10) {
         const a = this.rnd() * TAU;
         const rr = Math.sqrt(this.rnd()) * pd.r * 0.85;
-        this.fx.motes(pd.x + Math.cos(a) * rr, 0.18, pd.z + Math.sin(a) * rr, 1, 0xff5a1a, 1.4, 0.13, 0.42, -2.5, 0, 0.1, 3.6);
+        if (pd.cream) this.fx.motes(pd.x + Math.cos(a) * rr, 0.2, pd.z + Math.sin(a) * rr, 1, 0xfffaf0, 0.5, 0.16, 0.6, -0.6, 0, 0.1, 1.1);
+        else this.fx.motes(pd.x + Math.cos(a) * rr, 0.18, pd.z + Math.sin(a) * rr, 1, 0xff5a1a, 1.4, 0.13, 0.42, -2.5, 0, 0.1, 3.6);
       }
       pd.tick -= dt;
       if (pd.tick <= 0) {
@@ -4200,6 +4658,10 @@ export class Sim {
 
       if (b.kind === 'guppy') {
         this.updatePathGuppy(b, dt);
+        continue;
+      }
+      if (b.kind === 'earwhen') {
+        this.updateEarwhen(b, dt);
         continue;
       }
 
@@ -4438,18 +4900,23 @@ export class Sim {
     this.projs = this.projs.filter((p) => {
       p.x += p.vx * dt;
       p.z += p.vz * dt;
-      if (p.kind === 'chili' && !p.friendly) {
+      if ((p.kind === 'chili' || p.kind === 'blob') && !p.friendly) {
         p.vy -= 22 * dt;
         p.y += p.vy * dt;
       }
       p.life -= dt;
 
       if (this.rnd() < dt * (p.friendly ? 45 : 24)) {
-        const col = p.friendly ? 0x62f4ff : p.kind === 'chili' ? 0xff3b18 : 0xffaa44;
-        this.fx.sparks(p.x, p.y, p.z, 1, col, 3, 0.11, 0.2, { grav: 1, hdr: p.friendly ? 4.0 : 3.2 });
+        const cream = p.kind === 'cream' || p.kind === 'blob';
+        const col = p.friendly ? 0x62f4ff : cream ? 0xfffaf0 : p.kind === 'chili' ? 0xff3b18 : 0xffaa44;
+        this.fx.sparks(p.x, p.y, p.z, p.kind === 'blob' ? 3 : 1, col, 3, p.kind === 'blob' ? 0.2 : 0.11, 0.25, { grav: 4, hdr: p.friendly ? 4.0 : cream ? 1.2 : 3.2 });
       }
       let dead = p.life <= 0 || Math.abs(p.x) > 60 || Math.abs(p.z) > 60;
       // Arcing Sriracha chili glob splashes onto the ground into a burning chili puddle!
+      if (!dead && p.kind === 'blob' && !p.friendly && p.y <= 0.3) {
+        this.creamSplash(clamp(p.x, -BOUND + 1, BOUND - 1), clamp(p.z, -BOUND + 1, BOUND - 1), p.dmg);
+        dead = true;
+      }
       if (!dead && p.kind === 'chili' && !p.friendly && p.y <= 0.22) {
         this.spawnPuddle(clamp(p.x, -BOUND + 1, BOUND - 1), clamp(p.z, -BOUND + 1, BOUND - 1), p.dmg * 0.72);
         this.hurtPlayersNear(p.x, p.z, 2.2, 1.8, p.dmg, p.x, p.z, 9);
@@ -4458,7 +4925,8 @@ export class Sim {
       }
       if (!dead && p.y < 2.2 && this.resolve(p.x, p.z, 0.25).hit) {
         if (p.kind === 'chili' && !p.friendly) this.spawnPuddle(p.x, p.z, p.dmg * 0.7);
-        else this.fx.emit(p.x, p.y, p.z, 5, 0xffb057, 5, 0.2, 0.4);
+        else if (p.kind === 'blob' && !p.friendly) this.creamSplash(p.x, p.z, p.dmg);
+        else this.fx.emit(p.x, p.y, p.z, 5, p.kind === 'cream' ? 0xfffaf0 : 0xffb057, 5, 0.2, 0.4);
         dead = true;
       }
       if (!dead && p.friendly) {
@@ -4482,13 +4950,15 @@ export class Sim {
           for (const k of this.players) {
             if (Math.hypot(p.x - k.x, p.z - k.z) < 1.28 && k.y < 2 && this.hurtPlayer(k, p.dmg, p.x - p.vx * 0.1, p.z - p.vz * 0.1, 10)) {
               if (p.kind === 'chili') this.spawnPuddle(p.x, p.z, p.dmg * 0.65);
+              else if (p.kind === 'blob') this.creamSplash(p.x, p.z, p.dmg * 0.6);
+              else if (p.kind === 'cream') this.fx.emit(p.x, p.y, p.z, 6, 0xfffaf0, 4, 0.2, 0.45, 12);
               dead = true;
               break;
             }
           }
         }
         // Enemy chopsticks can skewer rebel hogs in their flight path!
-        if (!dead && p.kind === 'chopstick') {
+        if (!dead && (p.kind === 'chopstick' || p.kind === 'cream')) {
           for (const a of this.allies) {
             if (a.dying <= 0 && a.hp > 0 && a.inv <= 0 && Math.hypot(p.x - a.x, p.z - a.z) < 1.05) {
               this.hurtAlly(a, p.dmg * 0.85);
@@ -4571,7 +5041,7 @@ export class Sim {
     for (const p of this.pots) {
       if (p.hp > 0) cands.push({ kind: 'pot', x: p.x, y: 1.5, z: p.z, pot: p, score: 8 });
     }
-    if (A.active && A.hp > 0 && !A.shielded && A.state !== 'spin' && A.z < 56 && !['gone', 'defeated', 'leaving', 'ko'].includes(A.state)) {
+    if (A.active && A.hp > 0 && !A.shielded && A.state !== 'spin' && A.z < 56 && !['gone', 'defeated', 'leaving', 'ko', 'calling'].includes(A.state)) {
       cands.push({ kind: 'allen', x: A.x, y: A.y + 2.8, z: A.z, score: 18 });
     }
     if (!cands.length) {
@@ -4775,7 +5245,7 @@ export class Sim {
         k.prompt = 'E|Travel to Slopwood Forest';
         if (e) this.startHunt();
       } else if (near(SPOT.bell, 5)) {
-        k.prompt = `E|Ring the Dinner Bell — start Course ${this.course + 1}`;
+        k.prompt = `E|Ring the Dinner Bell — start ${this.course >= FINALE ? 'the final course' : `Course ${this.course + 1}`}`;
         if (e) this.beginCourse();
       }
     } else if (near(SPOT.rickley, 5.5)) {
@@ -5087,7 +5557,7 @@ export class Sim {
   private updateAllies(dt: number) {
     if (!this.allies.length) return;
     const A = this.A;
-    const combat = this.mode === 'combat' && A.active && A.hp > 0 && A.state !== 'leaving' && A.state !== 'ko' && A.state !== 'defeated';
+    const combat = this.mode === 'combat' && ((A.active && A.hp > 0 && !['leaving', 'ko', 'defeated', 'calling'].includes(A.state)) || !!this.earwhen());
     const living = this.allies.filter((a) => a.dying <= 0);
     const n = Math.max(1, living.length);
     const lead = this.living()[0] ?? this.players[0];

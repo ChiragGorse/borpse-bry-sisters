@@ -86,7 +86,7 @@ export default function App() {
   const onlinePlay = net?.state === 'playing';
   const showHud = hud && !hud.opening && (screen === 'play' || screen === 'shop' || screen === 'paused');
   // On-screen controls only on phones/tablets, and only while actually playing (not in menus or cutscenes).
-  const showTouch = touch && hud && !hud.opening && screen === 'play' && !hud.gamepad?.active;
+  const showTouch = touch && hud && !hud.opening && !hud.cinematic && screen === 'play' && !hud.gamepad?.active;
 
   return (
     <div

@@ -185,6 +185,8 @@ export interface AllenModel {
   flashMats: THREE.MeshStandardMaterial[];
   stars: THREE.Group;
   wok: THREE.Group;
+  /** His phone, out only when he calls Earwhen. */
+  phone: THREE.Group;
 }
 
 export function makeAllen(): AllenModel {
@@ -257,6 +259,12 @@ export function makeAllen(): AllenModel {
   part(armL, sph(0.36, 8, 6), skin, 0, -1.62, 0);
   part(armL, box(0.07, 1.7, 0.07), M(0xd9b27a), -0.08, -2.4, 0.1, { rz: 0.04 });
   part(armL, box(0.07, 1.7, 0.07), M(0xd9b27a), 0.08, -2.4, 0.1, { rz: -0.04 });
+  const phone = new THREE.Group();
+  phone.position.set(0, -1.75, 0.38);
+  phone.visible = false;
+  armL.add(phone);
+  part(phone, box(0.5, 0.9, 0.1), M(0x1b1b1f), 0, 0, 0, { shadow: false });
+  part(phone, box(0.42, 0.78, 0.01), glow(0x8fd1ff, 1.3), 0, 0, 0.055, { shadow: false });
 
   // dizzy stars (shown when stunned)
   const stars = new THREE.Group();
@@ -279,7 +287,7 @@ export function makeAllen(): AllenModel {
   part(wok, cyl(0.1, 0.1, 1.2, 6), M(0x6b4226), 2.3, 0, -0.6, { rz: PI / 2 });
   part(wok, sph(0.22, 8, 6), glow(0xffd23f, 0.9), 0, 0, 0.62, { shadow: false });
 
-  return { root, pivot, head, jaw, armL, armR, legL, legR, flashMats, stars, wok };
+  return { root, pivot, head, jaw, armL, armR, legL, legR, flashMats, stars, wok, phone };
 }
 
 /* ───────────────────────── NPCs ───────────────────────── */
@@ -946,4 +954,139 @@ export function makeTurret(): TurretModel {
   part(head, cyl(0.6, 0.6, 0.05, 12), M(0xe6c468), 0, 0.3, 0);
   part(head, cyl(0.3, 0.34, 0.26, 10), M(0xe6c468), 0, 0.45, 0);
   return { root, head };
+}
+
+/* ───────────────────────── Earwhen ───────────────────────── */
+
+export interface EarwhenModel extends EnemyModel {
+  pivot: THREE.Group;
+  head: THREE.Group;
+  jaw: THREE.Mesh;
+  armL: THREE.Group;
+  armR: THREE.Group;
+  legL: THREE.Group;
+  legR: THREE.Group;
+  /** The cream cannon, held across his chest: turns (yaw) to aim. */
+  cannon: THREE.Group;
+  /** The Mega Dollop swelling at the nozzle while he charges it. */
+  charge: THREE.Mesh;
+  stars: THREE.Group;
+  flashMats: THREE.MeshStandardMaterial[];
+}
+
+/**
+ * Earwhen: Allen's backup. Big, round and always hungry: a sky-blue hoodie, a backwards red cap,
+ * a pressurised cream tank on his back and a huge cream cannon in his arms.
+ */
+export function makeEarwhen(): EarwhenModel {
+  const root = new THREE.Group();
+  root.name = 'Earwhen';
+  const pivot = new THREE.Group();
+  root.add(pivot);
+  const hoodie = unique(0x6fb7e8);
+  const skin = unique(0xe9b98e);
+  const pants = unique(0x3b4a5e);
+  const flashMats = [hoodie, skin, pants];
+  const black = M(0x1a1716);
+  const white = M(0xfbf6ec);
+  const chrome = M(0xd9dee6);
+
+  const mkLeg = (x: number) => {
+    const g = new THREE.Group();
+    g.position.set(x, 1.15, 0);
+    pivot.add(g);
+    part(g, cyl(0.36, 0.3, 1.05, 8), pants, 0, -0.52, 0);
+    part(g, box(0.56, 0.3, 0.9), M(0xf2f2f2), 0, -1.0, 0.15);
+    part(g, box(0.58, 0.08, 0.92), M(0xd8392b), 0, -0.88, 0.15, { shadow: false });
+    return g;
+  };
+  const legL = mkLeg(0.5);
+  const legR = mkLeg(-0.5);
+
+  // round hoodie belly, with a kangaroo pocket and drawstrings
+  part(pivot, sph(1.3, 14, 10), hoodie, 0, 2.3, 0, { sx: 1.12, sy: 1.05 });
+  part(pivot, box(1.3, 0.55, 0.3), unique(0x5aa2d4), 0, 1.95, 1.18, { rx: -0.25 });
+  for (const s of [-1, 1]) part(pivot, cyl(0.03, 0.03, 0.6, 5), white, 0.18 * s, 3.05, 1.12, { rx: 0.2 });
+  part(pivot, torus(0.62, 0.2, 6, 14), hoodie, 0, 3.45, -0.15, { rx: PI / 2 });
+
+  // the cream tank on his back, with a hose to the cannon
+  part(pivot, cyl(0.42, 0.42, 1.6, 12), chrome, 0, 2.6, -1.35);
+  part(pivot, sph(0.42, 10, 6), chrome, 0, 3.4, -1.35);
+  part(pivot, cyl(0.12, 0.12, 0.25, 8), M(0xd8392b), 0, 3.85, -1.35);
+  part(pivot, box(0.9, 0.5, 0.06), white, 0, 2.6, -1.78, { shadow: false });
+  part(pivot, cyl(0.09, 0.09, 1.9, 6), M(0x2b2b30), 0.9, 2.3, -0.4, { rx: 0.9, rz: 0.5 });
+
+  const head = new THREE.Group();
+  head.position.set(0, 4.0, 0.1);
+  pivot.add(head);
+  part(head, sph(0.78, 12, 10), skin);
+  // backwards red cap
+  part(head, new THREE.SphereGeometry(0.82, 12, 6, 0, TAU, 0, PI * 0.45), M(0xd8392b), 0, 0.08, 0);
+  part(head, box(0.7, 0.06, 0.55), M(0xb52a20), 0, 0.42, -0.85, { rx: -0.15 });
+  for (const s of [-1, 1]) {
+    part(head, sph(0.17, 8, 6), skin, 0.78 * s, 0, 0);
+    part(head, sph(0.15, 8, 6), M(0xffffff), 0.27 * s, 0.08, 0.66, { shadow: false });
+    part(head, sph(0.08, 6, 5), black, 0.27 * s, 0.07, 0.78, { shadow: false });
+    part(head, box(0.34, 0.08, 0.1), M(0x3b2a1e), 0.28 * s, 0.33, 0.7, { rz: -0.25 * s, shadow: false });
+  }
+  part(head, sph(0.11, 6, 5), M(0xd9a27a), 0, -0.06, 0.8, { shadow: false });
+  const jaw = part(head, box(0.5, 0.18, 0.14), M(0x5a1020), 0, -0.38, 0.68, { shadow: false });
+  // a dab of cream on his cheek (he's been sampling)
+  part(head, sph(0.12, 6, 5), white, 0.42, -0.28, 0.6, { sz: 0.5, shadow: false });
+
+  const mkArm = (s: number) => {
+    const g = new THREE.Group();
+    g.position.set(1.45 * s, 3.15, 0.1);
+    pivot.add(g);
+    part(g, cyl(0.3, 0.25, 1.3, 8), hoodie, 0, -0.65, 0);
+    part(g, sph(0.32, 8, 6), skin, 0, -1.4, 0);
+    return g;
+  };
+  const armL = mkArm(1);
+  const armR = mkArm(-1);
+  armL.rotation.set(-1.1, 0, 0.35);
+  armR.rotation.set(-1.1, 0, -0.35);
+
+  // the cream cannon: a fat white barrel with a flared nozzle
+  const cannon = new THREE.Group();
+  cannon.position.set(0, 2.25, 1.0);
+  pivot.add(cannon);
+  part(cannon, cyl(0.42, 0.48, 1.7, 12), white, 0, 0, 0.6, { rx: PI / 2 });
+  part(cannon, cyl(0.5, 0.5, 0.18, 12), M(0xd8392b), 0, 0, 0.0, { rx: PI / 2 });
+  part(cannon, cyl(0.62, 0.3, 0.5, 12), chrome, 0, 0, 1.65, { rx: PI / 2 });
+  part(cannon, box(0.18, 0.5, 0.3), M(0x2b2b30), 0, -0.45, 0.3);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * TAU;
+    part(cannon, box(0.08, 0.08, 0.26), chrome, Math.cos(a) * 0.52, Math.sin(a) * 0.52, 1.95);
+  }
+  const charge = part(cannon, sph(0.55, 12, 10), new THREE.MeshStandardMaterial({ color: 0xfffaf0, emissive: 0xfff4dc, emissiveIntensity: 0.35, roughness: 0.4 }), 0, 0, 2.2, { shadow: false });
+  charge.visible = false;
+
+  const stars = new THREE.Group();
+  stars.position.set(0, 5.2, 0);
+  stars.visible = false;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * TAU;
+    part(stars, new THREE.OctahedronGeometry(0.2, 0), glow(0xffd23f, 1.2), Math.cos(a) * 0.9, 0, Math.sin(a) * 0.9, { shadow: false });
+  }
+  pivot.add(stars);
+
+  const hp = makeHpBar(2.2, 5.6, 0x6fb7e8);
+  hp.group.visible = false; // his health is on the HUD
+  root.add(hp.group);
+  return { root, anim: pivot, flash: hoodie, hp, pivot, head, jaw, armL, armR, legL, legR, cannon, charge, stars, flashMats };
+}
+
+/** A pellet of Earwhen's Cream Stream, or (`big`) his Mega Dollop. */
+export function makeCreamShot(big: boolean): THREE.Group {
+  const g = new THREE.Group();
+  const mat = M(0xfbf6ec);
+  if (big) {
+    part(g, sph(0.75, 12, 10), mat);
+    part(g, sph(0.4, 10, 8), mat, 0.4, 0.45, -0.2);
+    part(g, cone(0.3, 0.6, 8), mat, 0, 0.85, 0);
+  } else {
+    part(g, sph(0.2, 8, 6), mat, 0, 0, 0, { sz: 1.8, shadow: false });
+  }
+  return g;
 }

@@ -34,7 +34,9 @@ export type AState =
   | 'spinWind'
   | 'spin'
   /** Sent to the Backrooms by Kioff's portal: gone from the farm for a few seconds. */
-  | 'backrooms';
+  | 'backrooms'
+  /** Beaten at the Grand Feast, he phones Earwhen for backup (a story moment). */
+  | 'calling';
 
 export type Area = 'farm' | 'forest';
 
@@ -207,7 +209,32 @@ interface BotBody {
 export type GuppyState = 'waiting' | 'chasing' | 'windup' | 'recovering' | 'returning';
 export type PathGuppy = BotBody & { kind: 'guppy'; behavior: GuppyState };
 export type KitchenBot = BotBody & { kind: BotKind };
-export type Bot = KitchenBot | PathGuppy;
+/**
+ * What Earwhen is doing: leaping in, stalking, his three cream attacks (a wide Spray, a rapid Stream of
+ * pellets, a charged Mega Dollop blob), wandering off to snack, or staggered.
+ */
+export type EarwhenAct = 'arrive' | 'stalk' | 'sprayWind' | 'spray' | 'streamWind' | 'stream' | 'blobWind' | 'blob' | 'toEat' | 'eating' | 'stagger';
+export type EarwhenBot = BotBody & {
+  kind: 'earwhen';
+  act: EarwhenAct;
+  /** Aim of the cream cannon (world angle). */
+  aim: number;
+  cdSpray: number;
+  cdStream: number;
+  cdBlob: number;
+  hunger: number;
+  /** Edible he's heading for or eating, or -1. */
+  target: number;
+  shots: number;
+  /** Damage taken towards the next stagger. */
+  poise: number;
+  /** Where his leap lands, or where his Mega Dollop is headed. */
+  tx: number;
+  tz: number;
+  /** Allen is down: Earwhen fights angrier. */
+  rage: boolean;
+};
+export type Bot = KitchenBot | PathGuppy | EarwhenBot;
 
 export interface Puddle {
   id: number;
@@ -218,6 +245,8 @@ export interface Puddle {
   maxLife: number;
   tick: number;
   dmg: number;
+  /** A splat of Earwhen's cream rather than Sriracha. */
+  cream?: boolean;
 }
 /** Kioff's wireframe pig: kitchen bots and Allen chase it until it expires. */
 export interface Decoy {
@@ -245,7 +274,8 @@ export interface Proj {
   vz: number;
   life: number;
   dmg: number;
-  kind: 'chopstick' | 'chili';
+  /** `cream`: a pellet from Earwhen's Stream; `blob`: his arcing Mega Dollop. */
+  kind: 'chopstick' | 'chili' | 'cream' | 'blob';
   friendly?: boolean;
 }
 export interface Shock {

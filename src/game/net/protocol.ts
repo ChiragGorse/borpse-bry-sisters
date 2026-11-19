@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -25,9 +25,9 @@ export const KEYS = {
   playerMeta: ['id', 'name', 'tint', 'maxHp', 'maxStam', 'flowMove', 'prompt', 'shopNpc'],
   allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase', 'cdSwipe', 'cdSlam', 'cdThrow', 'cdDash', 'cdSummon', 'cdGuard', 'cdRain', 'cdSpin', 'tilt', 'backroomsT'],
   allenMeta: ['maxHp', 'poiseMax', 'phases', 'potTotal', 'shieldDur', 'enraged'],
-  bot: ['id', 'kind', 'x', 'z', 'hp', 'maxHp', 'heading', 'stun', 'chomp', 'flash', 'ph', 'mode', 'mt', 'lx', 'lz', 'hop', 'moving', 'swing', 'behavior'],
+  bot: ['id', 'kind', 'x', 'z', 'hp', 'maxHp', 'heading', 'stun', 'chomp', 'flash', 'ph', 'mode', 'mt', 'lx', 'lz', 'hop', 'moving', 'swing', 'behavior', 'act', 'aim'],
   proj: ['id', 'kind', 'x', 'y', 'z', 'vx', 'vz', 'friendly'],
-  puddle: ['id', 'x', 'z', 'r', 'life'],
+  puddle: ['id', 'x', 'z', 'r', 'life', 'cream'],
   shock: ['id', 'x', 'z', 'r', 'maxR', 'hostile'],
   pickup: ['id', 'area', 'x', 'y', 'z'],
   kernel: ['id', 'x', 'y', 'z'],
