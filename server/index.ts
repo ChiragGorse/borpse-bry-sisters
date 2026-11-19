@@ -19,7 +19,7 @@ const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const STATIC_DIR = resolve(process.env.STATIC_DIR || 'dist');
 const MAX_ROOMS = Number(process.env.MAX_ROOMS) || 100;
-const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.mp3': 'audio/mpeg' };
 
 const rooms = new Map<string, Room>();
 const log = (s: string) => console.log(`${new Date().toISOString()} ${s}`);
@@ -49,7 +49,24 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
     let body = await readFile(file);
     // tell the page it came from a game server, so it connects back here for online play
     if (file.endsWith('.html')) body = Buffer.from(body.toString('utf8').replace('<head>', '<head><meta name="borpse-server" content="1">'));
-    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-cache' });
+    const type = TYPES[extname(file)] ?? 'application/octet-stream';
+    // byte ranges, so the music can loop and seek
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    if (range && (range[1] || range[2])) {
+      const size = body.length;
+      let start = range[1] ? Number(range[1]) : size - Number(range[2]);
+      let end = range[1] && range[2] ? Number(range[2]) : size - 1;
+      start = Math.max(0, start);
+      end = Math.min(end, size - 1);
+      if (start > end) {
+        res.writeHead(416, { 'content-range': `bytes */${size}` }).end();
+        return;
+      }
+      res.writeHead(206, { 'content-type': type, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+      res.end(body.subarray(start, end + 1));
+      return;
+    }
+    res.writeHead(200, { 'content-type': type, 'accept-ranges': 'bytes', 'cache-control': 'no-cache' });
     res.end(body);
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain' });

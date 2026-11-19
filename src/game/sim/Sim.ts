@@ -3,7 +3,7 @@
  * rendering, DOM or audio. The browser view (../Game.ts) and a future multiplayer server both drive it by
  * calling `step(dt, inputs)` and presenting `drainEvents()` plus the public state.
  */
-import { COURSES, HOG_NAMES, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
+import { COURSES, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
 import type { SfxName } from '../audio';
 import {
   BOUND,
@@ -31,6 +31,7 @@ import {
   type Ally,
   type Area,
   type Bot,
+  type Decoy,
   type Hazard,
   type Kernel,
   type KitchenBot,
@@ -154,6 +155,12 @@ export function newPlayer(id: number, name: string, tint: number): Player {
     prompt: null,
     shopNpc: null,
     epoch: 0,
+    portalCd: 0,
+    decoyCd: 0,
+    potionCd: 0,
+    smashCd: 0,
+    calmT: 0,
+    rewinds: 0,
   };
 }
 
@@ -230,6 +237,12 @@ export function newAllen() {
     /** Per-player cooldown so one spin doesn't shred the same pig every frame. */
     spinHits: {} as Record<number, number>,
     spinRibbonT: 0,
+    /** Tilted by Smash Battles: faster and angrier for this many seconds. */
+    tilt: 0,
+    /** A Smash Battles stun ends in a tilt. */
+    tiltQueued: false,
+    /** Seconds left wandering the Backrooms. */
+    backroomsT: 0,
   };
 }
 export type AllenState = ReturnType<typeof newAllen>;
@@ -251,6 +264,7 @@ export class Sim {
   hazards: Hazard[] = [];
   wild: Wild[] = [];
   allies: Ally[] = [];
+  decoys: Decoy[] = [];
   edibles: SimEdible[];
 
   time = 0;
@@ -311,7 +325,7 @@ export class Sim {
   private waveT = 10;
   private overTimer = 0;
   private bannerKey = 0;
-  private greeted = { rickley: false, kingger: false, trout: false };
+  private greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
   private barkT = 12;
   private dummyCoachCd = 0;
   private turretT = 0;
@@ -320,6 +334,9 @@ export class Sim {
   private tips = new Set<string>();
   /** Records CombatVfx calls as events. */
   private fx: VfxApi;
+  /** Where each pig was, and its health, over the last few seconds (Keyframe Rewind). */
+  private history = new Map<number, { t: number; x: number; z: number; hp: number }[]>();
+  private historyT = 0;
   /** Pigs driven by their owner's browser (online play), with moves waiting to be replayed. */
   private remote = new Map<number, { strikes: Strike[]; pose: Pose | null; guard: number }>();
   /** Set while replaying a browser's move: no re-aiming, no hit-stop, no events (the owner already showed them). */
@@ -335,6 +352,8 @@ export class Sim {
     // The shopkeepers stand in the way, and the corn cannon is solid once it's built.
     this.farmColliders.push({ kind: 'c', x: SPOT.rickley.x, z: SPOT.rickley.z, r: 0.9, hx: 0, hz: 0, h: 2.8, enabled: true });
     this.farmColliders.push({ kind: 'c', x: SPOT.kingger.x, z: SPOT.kingger.z, r: 0.8, hx: 0, hz: 0, h: 2.6, enabled: true });
+    this.farmColliders.push({ kind: 'c', x: SPOT.kioff.x, z: SPOT.kioff.z, r: 0.8, hx: 0, hz: 0, h: 2.6, enabled: true });
+    this.farmColliders.push({ kind: 'c', x: SPOT.charig.x, z: SPOT.charig.z, r: 0.8, hx: 0, hz: 0, h: 2.6, enabled: true });
     this.turretCollider = { kind: 'c', x: SPOT.turret.x, z: SPOT.turret.z, r: 0.9, hx: 0, hz: 0, h: 3, enabled: false };
     this.farmColliders.push(this.turretCollider);
     const fx = {} as Record<VfxMethod, (...a: unknown[]) => void>;
@@ -465,7 +484,7 @@ export class Sim {
     if (opts.opening ?? this.players.length <= 1) {
       this.opening = { step: 0, t: 4.8 };
       this.showBanner('THE LAST HOG', 'An opening story · press Space, Enter, E, or click to skip');
-      this.say('Rickley', 'It started with an empty pen, one broke farmer, and one pig Allen had not eaten yet.', 4.8);
+      this.say('Charig', "Before the farm, before the bell, before any of this, there was school. Let me tell you how it went wrong.", 4.8);
     } else {
       this.opening = { step: 0, t: 0 };
       this.finishOpening();
@@ -485,7 +504,7 @@ export class Sim {
 
   advanceOpening() {
     if (!this.opening) return;
-    if (this.opening.step >= 4) {
+    if (this.opening.step >= OPENING_BEATS - 1) {
       this.finishOpening();
     } else {
       this.opening = { step: this.opening.step + 1, t: 4.8 };
@@ -527,7 +546,7 @@ export class Sim {
     this.overReason = null;
     this.overTimer = 0;
     this.outcome = null;
-    this.greeted = { rickley: false, kingger: false, trout: false };
+    this.greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
     this.showBanner('ONE MORE TRY', `Ring the bell when you're ready for Course ${this.course + 1}`);
     this.dirty = true;
   }
@@ -596,6 +615,10 @@ export class Sim {
 
   private resetPlayer(p: Player, slot: number) {
     p.epoch++;
+    p.portalCd = p.decoyCd = p.potionCd = p.smashCd = 0;
+    p.calmT = 0;
+    p.rewinds = 0;
+    this.history.delete(p.id);
     const pos = this.spawnSpot(slot);
     p.x = pos.x;
     p.z = pos.z;
@@ -657,7 +680,7 @@ export class Sim {
     this.subtitle = null;
     this.opening = null;
     this.banner = null;
-    this.greeted = { rickley: false, kingger: false, trout: false };
+    this.greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
     for (const e of this.edibles) {
       e.hp = e.maxHp;
       this.refreshEdible(e);
@@ -667,6 +690,7 @@ export class Sim {
   }
 
   private clearEnemies() {
+    this.decoys = [];
     this.bots = [];
     this.projs = [];
     this.puddles = [];
@@ -882,7 +906,10 @@ export class Sim {
       ko: this.stats.ko,
     };
     // the bell calls everyone out of the shops
-    for (const p of this.players) p.shopNpc = null;
+    for (const p of this.players) {
+      p.shopNpc = null;
+      p.rewinds = 0;
+    }
     this.courseFallen = 0;
     this.mode = 'combat';
     const fresh = newAllen();
@@ -963,7 +990,7 @@ export class Sim {
     for (const p of this.players) this.revive(p, 0.4, 20);
     this.healSurvivors(18);
     this.scatterTruffles(7);
-    this.greeted = { rickley: false, kingger: false, trout: false };
+    this.greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
     this.say(
       this.course === 1 ? 'Trout' : 'Kingger',
       this.course === 1
@@ -1024,6 +1051,8 @@ export class Sim {
       else this.updatePlayer(p, sdt);
     }
     this.separatePlayers();
+    this.updatePassives(dt);
+    this.updateDecoys(sdt);
     this.updateAllen(sdt);
     this.updateBots(sdt);
     this.updateProjectiles(sdt);
@@ -1135,7 +1164,7 @@ export class Sim {
         best = o;
       }
     }
-    if (A.active && !A.shielded && A.state !== 'leaving' && A.state !== 'ko' && A.y < 3) {
+    if (A.active && !A.shielded && A.state !== 'leaving' && A.state !== 'ko' && A.state !== 'backrooms' && A.y < 3) {
       const d = Math.hypot(A.x - p.x, A.z - p.z) - 1.6;
       if (d < bd) {
         bd = d;
@@ -1630,6 +1659,10 @@ export class Sim {
     k.zapAura = Math.max(0, k.zapAura - dt);
     k.squealCd = Math.max(0, k.squealCd - dt);
     k.whipCd = Math.max(0, k.whipCd - dt);
+    k.portalCd = Math.max(0, k.portalCd - dt);
+    k.decoyCd = Math.max(0, k.decoyCd - dt);
+    k.potionCd = Math.max(0, k.potionCd - dt);
+    k.smashCd = Math.max(0, k.smashCd - dt);
     k.focus = Math.max(0, k.focus - dt);
     k.rollChain = Math.max(0, k.rollChain - dt);
     k.rushWindow = Math.max(0, k.rushWindow - dt);
@@ -1666,7 +1699,9 @@ export class Sim {
         if (this.mode === 'intermission' && k.hp < k.maxHp) k.hp = Math.min(k.maxHp, k.hp + 3.5 * dt);
         if (moving && this.rnd() < dt * 14) this.fx.emit(k.x, 0.2, k.z, 2, 0x5c4030, 4, 0.22, 0.5);
       }
-      const speed = (10.5 + 0.7 * lv.trotters) * Math.min(ml, 1) * (inMud ? 0.72 : 1);
+      const speedrun = [1, 1.12, 1.2][Math.min(lv.speedrun, 2)];
+      const speed = (10.5 + 0.7 * lv.trotters) * speedrun * Math.min(ml, 1) * (inMud ? 0.72 : 1);
+      const rollCost = [28, 18, 12][Math.min(lv.speedrun, 2)];
 
       const b = inp.buttons;
       const wantAttack = (b & BTN.attack) !== 0;
@@ -1676,6 +1711,10 @@ export class Sim {
       const wantZap = (b & BTN.zap) !== 0;
       const wantSqueal = (b & BTN.squeal) !== 0;
       const wantWhip = (b & BTN.whip) !== 0;
+      const wantPortal = (b & BTN.portal) !== 0;
+      const wantDecoy = (b & BTN.decoy) !== 0;
+      const wantPotion = (b & BTN.potion) !== 0;
+      const wantSmash = (b & BTN.smash) !== 0;
       const maxCombo = lv.cyclone > 0 ? 3 : 2;
       const free = k.action === 'none';
       const canCancel =
@@ -1688,8 +1727,8 @@ export class Sim {
       const canFireCharge = k.chargeCd <= 0 || (rushEligible && lv.riverrush >= 2 && k.chargeCd <= 2.5);
 
       if (wantRoll && canCancel) {
-        if (k.stam >= 25) {
-          k.stam = Math.max(0, k.stam - 28);
+        if (k.stam >= Math.min(25, rollCost)) {
+          k.stam = Math.max(0, k.stam - rollCost);
           k.stamDelay = 0.7;
           k.action = 'roll';
           k.t = 0;
@@ -1703,7 +1742,7 @@ export class Sim {
             k.rdz = Math.cos(k.heading);
           }
           k.heading = Math.atan2(k.rdx, k.rdz);
-          k.invuln = Math.max(k.invuln, 0.36);
+          k.invuln = Math.max(k.invuln, lv.speedrun >= 2 ? 0.46 : 0.36);
           this.sound('roll');
           this.fx.dust(k.x - k.rdx * 0.4, floor + 0.25, k.z - k.rdz * 0.4, 7, 0xeadec6, { spread: 0.45, speed: 3.6, rise: 1.5, size0: 0.45, size1: 1.75, life: 0.48 });
           this.fx.sparks(k.x, floor + 0.5, k.z, 6, 0xfff5d6, 9, 0.11, 0.22, { dirX: -k.rdx, dirY: 0.12, dirZ: -k.rdz, focus: 0.85, hdr: 2.8, stretch: 4.5, grav: 2 });
@@ -1724,6 +1763,18 @@ export class Sim {
         else this.sound('deny', k);
       } else if (wantSqueal && canCancel && lv.squeal > 0) {
         if (k.squealCd <= 0) this.act('squeal', k, 0, () => this.doSqueal(k));
+        else this.sound('deny', k);
+      } else if (wantPortal && canCancel && lv.portal > 0) {
+        if (k.portalCd <= 0) this.act('portal', k, 0, () => this.openPortal(k));
+        else this.sound('deny', k);
+      } else if (wantDecoy && canCancel && lv.decoy > 0) {
+        if (k.decoyCd <= 0) this.act('decoy', k, 0, () => this.dropDecoy(k));
+        else this.sound('deny', k);
+      } else if (wantPotion && lv.potion > 0) {
+        if (k.potionCd <= 0) this.act('potion', k, 0, () => this.drinkPotion(k));
+        else this.sound('deny', k);
+      } else if (wantSmash && canCancel && lv.smash > 0) {
+        if (k.smashCd <= 0 && this.smashTarget(k)) this.act('smash', k, 0, () => this.smashBattles(k));
         else this.sound('deny', k);
       } else if (wantAttack) {
         // Upstream Uppercut: roll → attack (buffers early presses so Shift+LMB always feels crisp)
@@ -1940,7 +1991,7 @@ export class Sim {
     const bound = this.mapBound();
     k.x = clamp(r.x, -bound, bound);
     k.z = clamp(r.z, -bound, bound);
-    if (A.active && A.y < 2 && A.state !== 'leaving') {
+    if (A.active && A.y < 2 && A.state !== 'leaving' && A.state !== 'backrooms') {
       const dx = k.x - A.x;
       const dz = k.z - A.z;
       const d = Math.hypot(dx, dz);
@@ -2149,6 +2200,14 @@ export class Sim {
           return this.doLightningZap(p);
         case 'squeal':
           return this.doSqueal(p);
+        case 'portal':
+          return this.openPortal(p);
+        case 'decoy':
+          return this.dropDecoy(p);
+        case 'potion':
+          return this.drinkPotion(p);
+        case 'smash':
+          return this.smashBattles(p);
       }
     } finally {
       this.replaying = false;
@@ -2237,6 +2296,193 @@ export class Sim {
   setLevels(levels: Record<UpgradeId, number>) {
     this.levels = { ...levels };
     this.turretCollider.enabled = levels.cannon > 0;
+  }
+
+  /* ───────────────────────── Kioff's and Charig's abilities ───────────────────────── */
+
+  /** Kioff's Backrooms Portal [V]: kitchen bots nearby noclip out of existence (and, at level 2, Allen for a while). */
+  private openPortal(p: Player) {
+    const lv = this.levels.portal;
+    const R = lv >= 2 ? 8 : 6;
+    const A = this.A;
+    p.portalCd = lv >= 2 ? 15 : 18;
+    p.action = 'squeal';
+    p.t = 0;
+    const px = p.x + Math.sin(p.heading) * 3;
+    const pz = p.z + Math.cos(p.heading) * 3;
+    this.sound('shield');
+    this.addShake(0.4, p);
+    this.fx.groundMark(px, 0, pz, R * 0.8, 'crater', 0xe8d97a, 2.4);
+    this.fx.shockWall(px, 0.1, pz, 0xe8d97a, R, 0.6, 3.2, 0.8, 0.6, -6);
+    this.fx.motes(px, 1, pz, 30, 0xfff2a8, 4, 0.25, 1.1, -3, 10, R * 0.6, 3);
+    this.floatText(px, 3, pz, 'NOCLIP!', 'info');
+    let sent = 0;
+    this.bots = this.bots.filter((b) => {
+      if (b.kind === 'guppy' || Math.hypot(b.x - px, b.z - pz) > R) return true;
+      sent++;
+      this.stats.ko++;
+      this.fx.sparks(b.x, 1, b.z, 10, 0xe8d97a, 6, 0.15, 0.5, { up: 1, grav: -4, hdr: 3 });
+      return false;
+    });
+    this.projs = this.projs.filter((o) => o.friendly || Math.hypot(o.x - px, o.z - pz) > R);
+    this.puddles = this.puddles.filter((o) => Math.hypot(o.x - px, o.z - pz) > R);
+    if (sent) this.floatText(px, 4, pz, `${sent} sent to the Backrooms`, 'crit');
+    if (lv >= 2 && A.active && !A.shielded && Math.hypot(A.x - px, A.z - pz) < R + 2 && !['gone', 'defeated', 'leaving', 'ko', 'backrooms', 'enter'].includes(A.state)) {
+      this.fx.flash(A.x, 2, A.z, 0xe8d97a, 14, 0.4, 16);
+      this.setA('backrooms');
+      A.backroomsT = 4;
+      A.y = 0;
+      A.target = -1;
+      A.tiltQueued = false;
+      this.showBanner('ALLEN NOCLIPPED', "He's lost in the Backrooms: smash things while he's gone");
+      this.dirty = true;
+    }
+  }
+
+  private nearestDecoy(x: number, z: number, maxD: number): Decoy | null {
+    let best: Decoy | null = null;
+    let bd = maxD;
+    for (const d of this.decoys) {
+      const dd = Math.hypot(d.x - x, d.z - z);
+      if (dd < bd) {
+        bd = dd;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  /** Kioff's Wireframe Decoy [G]: a low-poly pig that soaks up attention. */
+  private dropDecoy(p: Player) {
+    const lv = this.levels.decoy;
+    p.decoyCd = 16;
+    const pos = this.safePosition(p.x + Math.sin(p.heading) * 2.5, p.z + Math.cos(p.heading) * 2.5, 0.6);
+    const life = lv >= 2 ? 8 : 6;
+    this.decoys.push({ id: this.id(), x: pos.x, z: pos.z, life, maxLife: life, burst: lv >= 2 });
+    if (this.decoys.length > 3) this.decoys.shift();
+    this.sound('pop');
+    this.fx.sparks(pos.x, 1, pos.z, 16, 0x5ff2ff, 5, 0.12, 0.5, { up: 1, grav: 2, hdr: 3.6 });
+    this.floatText(pos.x, 2.4, pos.z, 'DECOY!', 'info');
+  }
+
+  private updateDecoys(dt: number) {
+    if (!this.decoys.length) return;
+    this.decoys = this.decoys.filter((d) => {
+      d.life -= dt;
+      if (d.life > 0) return true;
+      this.fx.sparks(d.x, 1, d.z, 22, 0x5ff2ff, 8, 0.14, 0.5, { hdr: 3.8, altColor: 0xff8fb0 });
+      if (d.burst) {
+        // a burst of pixels
+        this.sound('pop');
+        this.fx.shockWall(d.x, 0.1, d.z, 0x5ff2ff, 0.6, 5, 0.6, 2.4, 0.4, 8);
+        for (const b of [...this.bots]) if (Math.hypot(b.x - d.x, b.z - d.z) < 5) this.damageBot(b, 40, (b.x - d.x) * 3, (b.z - d.z) * 3, true);
+        if (this.A.active && Math.hypot(this.A.x - d.x, this.A.z - d.z) < 5.5) this.damageAllen(22 + 4 * this.course, 15, { fx: d.x, fz: d.z, minor: true });
+        this.hitPots(d.x, d.z, 5, 30);
+      }
+      return false;
+    });
+  }
+
+  /** Charig's Health Potion [H]: heals you, plus pigs and hogs near you. */
+  private drinkPotion(p: Player) {
+    const lv = this.levels.potion;
+    p.potionCd = lv >= 2 ? 15 : 20;
+    const self = lv >= 2 ? 60 : 35;
+    const near = lv >= 2 ? 35 : 20;
+    const before = p.hp;
+    p.hp = Math.min(p.maxHp, p.hp + self);
+    this.sound('buy');
+    this.fx.motes(p.x, 1, p.z, 18, 0x7dff8a, 2.5, 0.2, 1, -3, 4, 0.8, 3);
+    this.floatText(p.x, 2.6 + p.y, p.z, `+${Math.round(p.hp - before)}`, 'gold');
+    for (const o of this.players) {
+      if (o === p || o.action === 'dead' || Math.hypot(o.x - p.x, o.z - p.z) > 7) continue;
+      o.hp = Math.min(o.maxHp, o.hp + near);
+      this.fx.motes(o.x, 1, o.z, 8, 0x7dff8a, 2, 0.18, 0.8, -3, 3, 0.6, 3);
+    }
+    for (const a of this.allies) {
+      if (a.dying > 0 || a.hp <= 0 || Math.hypot(a.x - p.x, a.z - p.z) > 7) continue;
+      a.hp = Math.min(a.maxHp, a.hp + near);
+    }
+    this.dirty = true;
+  }
+
+  /** Allen within phone-shoving range in front of this pig. */
+  private smashTarget(p: Player): boolean {
+    const A = this.A;
+    if (!A.active || A.shielded || ['gone', 'defeated', 'leaving', 'ko', 'backrooms', 'enter', 'spin', 'slamAir'].includes(A.state)) return false;
+    return Math.hypot(A.x - p.x, A.z - p.z) < 6.5;
+  }
+
+  /** Charig's Smash Battles [X]: a phone in Allen's face. He's stunned, then Tilted for 15 s. */
+  private smashBattles(p: Player) {
+    const lv = this.levels.smash;
+    const A = this.A;
+    p.smashCd = lv >= 2 ? 24 : 30;
+    p.action = 'zap';
+    p.t = 0;
+    if (!this.smashTarget(p)) return;
+    p.heading = Math.atan2(A.x - p.x, A.z - p.z);
+    this.sound('clang');
+    this.sound('stun');
+    this.fx.flash(A.x, A.y + 3, A.z, 0xffffff, 12, 0.25, 12);
+    this.fx.sparks(A.x, A.y + 3.4, A.z, 18, 0x9fd8ff, 6, 0.14, 0.5, { hdr: 3.6, altColor: 0xff8fb0 });
+    this.floatText(A.x, A.y + 5.4, A.z, 'SMASH BATTLES!', 'crit');
+    A.tilt = 0;
+    this.stunAllen(lv >= 2 ? 3.5 : 2.5, true);
+    A.tiltQueued = true;
+    if (lv >= 2) {
+      for (const b of this.bots) if (Math.hypot(b.x - p.x, b.z - p.z) < 6) b.stun = Math.max(b.stun, 2);
+    }
+    this.dirty = true;
+  }
+
+  /** Passives that tick for every pig: Charig's regen and the history Keyframe Rewind needs. */
+  private updatePassives(dt: number) {
+    const regen = this.levels.regen;
+    this.historyT -= dt;
+    const sample = this.historyT <= 0;
+    if (sample) this.historyT = 0.2;
+    for (const p of this.players) {
+      p.calmT += dt;
+      if (regen > 0 && p.action !== 'dead' && p.hp < p.maxHp && p.calmT > (regen >= 2 ? 3 : 4)) {
+        p.hp = Math.min(p.maxHp, p.hp + (regen >= 2 ? 3 : 1.5) * dt);
+      }
+      if (sample && this.levels.rewind > 0) {
+        const h = this.history.get(p.id) ?? [];
+        h.push({ t: this.time, x: p.x, z: p.z, hp: p.hp });
+        while (h.length && this.time - h[0].t > 4.5) h.shift();
+        this.history.set(p.id, h);
+      }
+    }
+  }
+
+  /** Kioff's Keyframe Rewind: once per course, a knockout hit sends this pig back a few seconds instead. */
+  private tryRewind(p: Player): boolean {
+    const lv = this.levels.rewind;
+    if (lv <= 0 || p.rewinds >= 1 || this.overReason) return false;
+    const back = lv >= 2 ? 4 : 3;
+    const h = this.history.get(p.id) ?? [];
+    const then = h.find((s) => this.time - s.t <= back + 0.1) ?? h[0];
+    if (!then) return false;
+    p.rewinds++;
+    this.fx.sparks(p.x, 1, p.z, 18, 0x9fd8ff, 6, 0.14, 0.6, { hdr: 3.8, altColor: 0xff8fb0 });
+    this.fx.lightning(p.x, 1, p.z, then.x, 1, then.z, 0x9fd8ff, 0.06, 0.4);
+    p.x = then.x;
+    p.z = then.z;
+    p.y = 0;
+    p.vx = p.vy = p.vz = 0;
+    p.hp = Math.max(Math.round(p.maxHp * (lv >= 2 ? 0.5 : 0.25)), Math.round(then.hp));
+    p.action = 'none';
+    p.t = 0;
+    p.invuln = 1.5;
+    p.blink = 1.5;
+    p.epoch++; // the pig's owner takes the new position
+    this.sound('zap');
+    this.fx.flash(p.x, 1.5, p.z, 0x9fd8ff, 10, 0.3, 10);
+    this.floatText(p.x, 2.8, p.z, 'KEYFRAME REWIND!', 'crit');
+    this.history.delete(p.id);
+    this.dirty = true;
+    return true;
   }
 
   /**
@@ -2493,6 +2739,8 @@ export class Sim {
     }
     const def = (1 - 0.1 * this.levels.hide) * (k.muddy > 0 ? 0.85 : 1);
     const d = Math.max(1, Math.round(dmg * def));
+    k.calmT = 0;
+    if (k.hp - d <= 0 && this.tryRewind(k)) return true;
     k.hp -= d;
     this.stats.taken += d;
     k.hurtTick++;
@@ -2562,7 +2810,7 @@ export class Sim {
   private stunAllen(dur: number, force: boolean) {
     const A = this.A;
     if (!A.active || A.hp <= 0) return;
-    if (['defeated', 'leaving', 'ko', 'gone', 'slamAir', 'spin'].includes(A.state) || A.shielded) return;
+    if (['defeated', 'leaving', 'ko', 'gone', 'slamAir', 'spin', 'backrooms'].includes(A.state) || A.shielded) return;
     if (!force && A.stunImmune > 0) {
       this.floatText(A.x, 5.2, A.z, 'RESISTED', 'info');
       return;
@@ -2625,7 +2873,7 @@ export class Sim {
    */
   private damageAllen(dmg: number, poise: number, o: { heavy?: boolean; minor?: boolean; fx?: number; fz?: number; by?: Player } = {}): boolean {
     const A = this.A;
-    if (!A.active || ['gone', 'defeated', 'leaving', 'ko'].includes(A.state)) return false;
+    if (!A.active || ['gone', 'defeated', 'leaving', 'ko', 'backrooms'].includes(A.state)) return false;
     const srcX = o.fx ?? o.by?.x ?? A.x + Math.sin(A.heading) * 3;
     const srcZ = o.fz ?? o.by?.z ?? A.z + Math.cos(A.heading) * 3;
     if (A.shielded) {
@@ -3112,9 +3360,20 @@ export class Sim {
     this.allenPrompt = null;
     if (!A.active) return;
     const ctl = this.allenPlayer ? (this.inputs.get(ALLEN_ID) ?? NO_INPUT) : null;
-    const k = ctl ? this.allenAim(ctl) : this.allenTarget();
+    // a wireframe decoy is irresistible to the AI; a person playing Allen aims for themselves
+    const lure = ctl ? null : this.nearestDecoy(A.x, A.z, 40);
+    const k = ctl ? this.allenAim(ctl) : (lure ? { x: lure.x, z: lure.z, vx: 0, vz: 0 } : this.allenTarget());
     if (!k) return;
-    const c = COURSES[Math.min(this.course, COURSES.length - 1)];
+    const c0 = COURSES[Math.min(this.course, COURSES.length - 1)];
+    // Tilted (after Smash Battles): faster, harder-hitting, quicker wind-ups
+    const c = A.tilt > 0 ? { ...c0, dmg: c0.dmg * 1.3, speed: c0.speed * 1.25, tele: c0.tele * 0.85 } : c0;
+    if (A.tilt > 0) {
+      A.tilt = Math.max(0, A.tilt - dt);
+      if (A.tilt === 0) {
+        this.floatText(A.x, 5.6, A.z, 'calmed down', 'info');
+        this.dirty = true;
+      }
+    }
     A.t += dt;
     A.flash = Math.max(0, A.flash - dt);
     A.stunImmune = Math.max(0, A.stunImmune - dt);
@@ -3589,6 +3848,31 @@ export class Sim {
           A.stunImmune = 6.5;
           A.globalCd = 0.45;
           this.setA('chase');
+          if (A.tiltQueued) {
+            // Smash Battles: he comes out of it furious
+            A.tiltQueued = false;
+            A.tilt = 15;
+            this.sound('roar');
+            this.addShake(0.5);
+            this.floatText(A.x, 6.2, A.z, 'TILTED!', 'hurt');
+            this.say('Allen', this.pick(['Who even PLAYS Smash Battles anymore?!', 'That combo was NOT fair!', 'Rematch. RIGHT NOW.']), 3);
+            this.fx.shockWall(A.x, 0.1, A.z, 0xff3b30, 1, 6, 1, 3, 0.45, 6);
+            this.dirty = true;
+          }
+        }
+        break;
+      }
+      case 'backrooms': {
+        // noclipped out of the farm: back through the gate when he finds his way out
+        A.backroomsT -= dt;
+        if (A.backroomsT <= 0) {
+          A.x = 0;
+          A.z = 64;
+          A.y = 0;
+          A.heading = PI;
+          this.setA('enter');
+          this.say('Allen', this.pick(['Endless yellow rooms… buzzing lights… I NEED A SNACK.', 'I was in there for YEARS. Probably.', 'Never. Again.']), 3.2);
+          this.dirty = true;
         }
         break;
       }
@@ -3840,6 +4124,9 @@ export class Sim {
 
   /** Picks a target for an enemy bot: the nearest pig, or a nearby rebel hog (so hogs are genuinely threatened!). */
   private pickBotTarget(b: Bot, hogBias = 0.75): { x: number; z: number; player: Player | null; ally: Ally | null } {
+    // a wireframe decoy nearby beats any real pig
+    const lure = this.nearestDecoy(b.x, b.z, 22);
+    if (lure) return { x: lure.x, z: lure.z, player: null, ally: null };
     const k = this.nearestPlayer(b.x, b.z) ?? this.players[0];
     let bestX = k?.x ?? b.x;
     let bestZ = k?.z ?? b.z;
@@ -4458,9 +4745,23 @@ export class Sim {
           4.4,
         );
       }
+      if (!this.greeted.kioff && near(SPOT.kioff, 10)) {
+        this.greeted.kioff = true;
+        this.say('Kioff', this.pick(['Gen Ed for life. But I render a mean portal.', 'The chickens are my beta testers. Want in?', "I've seen the Backrooms. Allen should too."]), 3.5);
+      }
+      if (!this.greeted.charig && near(SPOT.charig, 10)) {
+        this.greeted.charig = true;
+        this.say('Charig', this.pick(['Kenji! I know Allen better than anyone. Let me help.', "Health potions, speedrun strats, and one very cursed phone. Take a look.", 'Back in the lab, Allen was my best friend. Now look at him.']), 3.8);
+      }
       if (near(SPOT.rickley, 5.5)) {
         k.prompt = 'E|Trade with Rickley';
         if (e) this.openShop(k.id, 'rickley');
+      } else if (near(SPOT.kioff, 5.2)) {
+        k.prompt = "E|Kioff's render farm: portals, decoys and the corn cannon";
+        if (e) this.openShop(k.id, 'kioff');
+      } else if (near(SPOT.charig, 5.2)) {
+        k.prompt = "E|Charig's stash: healing and gamer tricks";
+        if (e) this.openShop(k.id, 'charig');
       } else if (near(SPOT.kingger, 5.5)) {
         k.prompt = 'E|Browse Kingger Labs';
         if (e) this.openShop(k.id, 'kingger');

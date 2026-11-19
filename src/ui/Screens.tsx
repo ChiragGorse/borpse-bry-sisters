@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { serverAddress, type NetStatus } from '../game/net/NetClient';
-import type { HudState } from '../game/data';
+import { ACTIVE_INFO, type ActiveId, type HudState } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
 import { Key, Portrait } from './Hud';
 
@@ -14,9 +14,8 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
     [<Key>{padActionLabel(pad, 'charge')}</Key>, 'Hog Charge'],
     [<Key>{padActionLabel(pad, 'roll')}</Key>, 'Dodge roll'],
     [<Key>{padActionLabel(pad, 'jump')}</Key>, 'Jump'],
-    [<Key>{padActionLabel(pad, 'whip')}</Key>, 'Tail-Whip (Trout)'],
-    [<Key>{padActionLabel(pad, 'zap')}</Key>, 'Lightning Zap (Kingger)'],
-    [<Key>{padActionLabel(pad, 'squeal')}</Key>, 'Sonic Squeal (Kingger)'],
+    [<><Key>{padActionLabel(pad, 'zap')}</Key><Key>{padActionLabel(pad, 'squeal')}</Key><Key>{padActionLabel(pad, 'whip')}</Key></>, 'Ability slots 1-3'],
+    [<Key>D-pad ← → ↓</Key>, 'Ability slots 4-6 (set them in the pause menu)'],
     [<Key>{padActionLabel(pad, 'interact')}</Key>, 'Talk, travel, or ring the bell'],
     [<Key>{padActionLabel(pad, 'listen')}</Key>, 'Listen for hogs in the forest'],
     [<Key>{padLabel(pad, 'start')}</Key>, 'Pause / resume'],
@@ -47,9 +46,7 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
     ],
     [<Key>Shift</Key>, 'Dodge roll — roll through a hit for a Perfect Dodge'],
     [<Key>Space</Key>, 'Jump — hop shockwaves (or dive with Belly Flop)'],
-    [<Key>Q</Key>, 'Lightning Zap — chain-lightning strike (buy from Kingger)'],
-    [<Key>C</Key>, 'Tail-Whip Counter (learn from Trout at the lake)'],
-    [<Key>F</Key>, 'Sonic Squeal (buy it from Kingger)'],
+    [<Key>Q F C V X G</Key>, 'Six ability slots: abilities you buy drop into them (rearrange in the pause menu)'],
     [<Key>E</Key>, 'Talk to Rickley / Kingger / Trout, enter forest, ring bell'],
     [<Key>R</Key>, 'In the forest: listen for nearby wild hogs'],
     [
@@ -405,7 +402,34 @@ export function OpeningCutscene({
   portraits: Record<string, string>;
   onSkip: () => void;
 }) {
+  const charig = { who: 'CHARIG', portrait: portraits.charig, alt: 'Charig', bg: 'bg-[#c9e6d3]' };
   const scene = [
+    {
+      ...charig,
+      title: 'BEFORE ANY OF THIS',
+      text: 'Before the farm, before the dinner bell, before any of this mess, there was school. And at school, there was a war.',
+    },
+    {
+      ...charig,
+      title: 'THE AL VS GEN ED WAR',
+      text: 'The AL kids (me, Kenji, Allen, Path Guppy and Rickley) against the Gen Eds: Kioff, Kingger and Trout. It was brutal. It was glorious. It was mostly in the hallway.',
+    },
+    {
+      ...charig,
+      title: 'WE WON. THEN WE FORGOT WHY.',
+      text: 'We won. Then, honestly? None of us could remember what we were fighting about. So we did the only reasonable thing and started a farm.',
+    },
+    {
+      ...charig,
+      title: 'BACK IN THE LAB',
+      text: 'Allen and I had good times. Roblox until 3 a.m., funny videos nobody else laughed at, chemistry back in the lab that was “only slightly” on fire.',
+      memory: true,
+    },
+    {
+      ...charig,
+      title: 'GREED AND HUNGER',
+      text: 'But somewhere along the way Allen got consumed by greed and hunger. He ate everything the farm grew, so we kicked him out. That is how all of this started.',
+    },
     {
       who: 'STORYTELLER',
       title: 'THE EMPTY PEN',
@@ -446,10 +470,11 @@ export function OpeningCutscene({
       alt: 'Rickley',
       bg: 'bg-[#ffe9b8]',
     },
-  ][Math.min(step, 4)];
+  ][Math.min(step, 9)] as { who: string; title: string; text: string; portrait: string; alt: string; bg: string; memory?: boolean };
 
   return (
-    <div className="cutscene pointer-events-none absolute inset-0 z-50" data-pad-menu>
+    <div className={`cutscene pointer-events-none absolute inset-0 z-50${scene.memory ? ' cutscene-memory' : ''}`} data-pad-menu>
+      {scene.memory && <div className="cutscene-memory-tint" aria-hidden="true" />}
       <div className="cutscene-bar cutscene-bar-top">
         <p className="font-mono text-[10px] font-extrabold uppercase tracking-[0.24em] text-mustard">
           The Borpse Bry Sisters · prologue
@@ -490,9 +515,12 @@ export function PauseScreen({
   onReturnFarm,
   restartLabel = 'Start over',
   note,
+  loadout,
 }: {
   restartLabel?: string;
   note?: string;
+  /** Your ability slots and the abilities you own, to rearrange. */
+  loadout?: { actives: HudState['actives']; owned: ActiveId[]; onAssign: (slot: number, id: ActiveId | null) => void };
   muted: boolean;
   gfx: 'high' | 'medium' | 'low';
   pad?: PadLayout;
@@ -529,6 +557,35 @@ export function PauseScreen({
           </button>
         </div>
         {note && <p className="mt-3 text-sm font-bold text-ink/70">{note}</p>}
+        {loadout && loadout.owned.length > 0 && (
+          <section aria-labelledby="loadout-title" className="mt-4 border-t-2 border-ink/15 pt-3">
+            <h3 id="loadout-title" className="font-display text-base leading-none">ABILITY LOADOUT</h3>
+            <p className="mt-1 text-xs font-bold text-ink/60">Six slots, six keys. Pick what each one fires; choosing an ability that's in another slot swaps them.</p>
+            <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {loadout.actives.map((a) => (
+                <li key={a.slot} className="flex items-center gap-2">
+                  <Key>{a.key}</Key>
+                  <label className="sr-only" htmlFor={`slot-${a.slot}`}>
+                    Slot {a.slot + 1} ({a.key})
+                  </label>
+                  <select
+                    id={`slot-${a.slot}`}
+                    value={a.id ?? ''}
+                    onChange={(e) => loadout.onAssign(a.slot, (e.target.value || null) as ActiveId | null)}
+                    className="min-w-0 flex-1 rounded-lg border-2 border-ink bg-white px-2 py-1 text-sm font-bold text-ink"
+                  >
+                    <option value="">Empty</option>
+                    {loadout.owned.map((id) => (
+                      <option key={id} value={id}>
+                        {ACTIVE_INFO[id].icon} {ACTIVE_INFO[id].name}
+                      </option>
+                    ))}
+                  </select>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {onReturnFarm && (
           <button type="button" onClick={onReturnFarm} className="btn mt-3 w-full bg-[#416744] px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-paper">Return to the farm with your recruits</button>
         )}

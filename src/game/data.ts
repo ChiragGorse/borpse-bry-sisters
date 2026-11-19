@@ -1,6 +1,6 @@
 import type { PadLayout } from './gamepad';
 
-export type NpcId = 'rickley' | 'kingger' | 'trout';
+export type NpcId = 'rickley' | 'kingger' | 'trout' | 'kioff' | 'charig';
 export type Screen = 'title' | 'play' | 'shop' | 'paused' | 'gameover' | 'victory';
 export type BotKind = 'grill' | 'spitter' | 'skewer' | 'tenderizer' | 'bomber';
 export type UpgradeId =
@@ -19,7 +19,14 @@ export type UpgradeId =
   | 'bellyflop'
   | 'cyclone'
   | 'tailwhip'
-  | 'riverrush';
+  | 'riverrush'
+  | 'portal'
+  | 'decoy'
+  | 'rewind'
+  | 'potion'
+  | 'regen'
+  | 'speedrun'
+  | 'smash';
 
 export interface UpgradeDef {
   id: UpgradeId;
@@ -86,7 +93,6 @@ export const UPGRADES: UpgradeDef[] = [
     id: 'zap',
     npc: 'kingger',
     name: 'Lightning Zap',
-    input: 'Q',
     levels: [
       'Unlocks Lightning Zap: call a sky bolt that chains to 3 targets + Kingger zaps foes from his lab',
       'Chains to 5 targets, cracks Wok Guard, fries projectiles & faster cooldown + stronger Kingger zaps',
@@ -105,7 +111,6 @@ export const UPGRADES: UpgradeDef[] = [
     id: 'squeal',
     npc: 'kingger',
     name: 'Sonic Squeal Amp',
-    input: 'F',
     levels: ['Unlocks Squeal: stuns nearby enemies & clears projectiles', 'Wider blast, longer stun, faster recharge'],
     costs: [60, 105],
   },
@@ -118,7 +123,7 @@ export const UPGRADES: UpgradeDef[] = [
   },
   {
     id: 'cannon',
-    npc: 'kingger',
+    npc: 'kioff',
     name: 'Corn Cannon',
     levels: ['Builds an auto-turret that pelts kitchen bots & Allen', 'Fires faster and harder', 'Rapid-fire cob barrage'],
     costs: [75, 115, 155],
@@ -160,7 +165,6 @@ export const UPGRADES: UpgradeDef[] = [
     id: 'tailwhip',
     npc: 'trout',
     name: 'Tail-Whip Counter',
-    input: 'C',
     levels: [
       'Unlocks Tail-Whip: 360° sweep that knocks back bombers & blocks projectiles',
       'Faster cooldown, wider arc, and reflects chopsticks & chili globs back at foes',
@@ -175,6 +179,67 @@ export const UPGRADES: UpgradeDef[] = [
     levels: [
       'Chain any 2 hits into Hog Charge for a hydro-surging River Rush (+45% dmg & stagger)',
       '+75% River Rush damage, fires early with <2.5s cooldown left, and doubles Combo Flow',
+    ],
+    costs: [60, 110],
+  },
+  {
+    id: 'portal',
+    npc: 'kioff',
+    name: 'Backrooms Portal',
+    levels: [
+      'Opens a noclip portal that sends nearby kitchen bots to the Backrooms for good',
+      'Bigger portal, faster recharge, and Allen falls in too: he wanders the Backrooms for 4s and has to walk back in',
+    ],
+    costs: [70, 120],
+  },
+  {
+    id: 'decoy',
+    npc: 'kioff',
+    name: 'Wireframe Decoy',
+    levels: [
+      'Drops a glowing low-poly pig that kitchen bots and Allen chase for 6 seconds',
+      'Lasts 8 seconds, then bursts into pixels that hurt everything nearby',
+    ],
+    costs: [55, 95],
+  },
+  {
+    id: 'rewind',
+    npc: 'kioff',
+    name: 'Keyframe Rewind',
+    levels: [
+      'Once per course, a knockout hit rewinds you 3 seconds: back where you were, with the health you had',
+      'Rewinds 4 seconds and always brings you back with at least half your health',
+    ],
+    costs: [80, 130],
+  },
+  {
+    id: 'potion',
+    npc: 'charig',
+    name: 'Health Potion',
+    levels: ['Chug a potion: heal 35 health, and pigs and hogs near you heal 20', 'Heals 60, nearby pigs and hogs heal 35, faster recharge'],
+    costs: [40, 80],
+  },
+  {
+    id: 'regen',
+    npc: 'charig',
+    name: 'Out-of-Combat Regen',
+    levels: ['Heal 1.5 health a second after 4 seconds without getting hit', 'Heal 3 a second after just 3 seconds'],
+    costs: [45, 90],
+  },
+  {
+    id: 'speedrun',
+    npc: 'charig',
+    name: 'Speedrun Strats',
+    levels: ['Run 12% faster; rolls cost 18 stamina instead of 28', 'Run 20% faster; rolls cost 12 stamina and stay invincible a bit longer'],
+    costs: [40, 80],
+  },
+  {
+    id: 'smash',
+    npc: 'charig',
+    name: 'Smash Battles',
+    levels: [
+      "Shove a phone in Allen's face: he's stunned for 2.5s, even when he'd normally resist, but then he's Tilted for 15s (faster and angrier)",
+      'Stuns him for 3.5s and stuns kitchen bots nearby too; faster recharge',
     ],
     costs: [60, 110],
   },
@@ -503,6 +568,10 @@ export interface HudState {
     guppy: { hp: number; maxHp: number; status: 'chasing' | 'windup' | 'recovering' } | null;
   } | null;
   stats: { time: number; dealt: number; taken: number; earned: number; fallen: number; ko: number };
+  /** Your six loadout slots: key, keyboard code, the ability in it (or null), cooldown (1 = just used). */
+  actives: { slot: number; key: string; code: string; id: ActiveId | null; name: string; cd: number; icon: string }[];
+  /** Active abilities you own (whether or not they're in a slot). */
+  owned: ActiveId[];
 }
 
 export const emptyLevels = (): Record<UpgradeId, number> => ({
@@ -522,4 +591,31 @@ export const emptyLevels = (): Record<UpgradeId, number> => ({
   cyclone: 0,
   tailwhip: 0,
   riverrush: 0,
+  portal: 0,
+  decoy: 0,
+  rewind: 0,
+  potion: 0,
+  regen: 0,
+  speedrun: 0,
+  smash: 0,
 });
+
+/** Abilities you put in your loadout and fire with a slot key. */
+export const ACTIVE_IDS = ['zap', 'squeal', 'tailwhip', 'portal', 'decoy', 'potion', 'smash'] as const;
+export type ActiveId = (typeof ACTIVE_IDS)[number];
+export const ACTIVE_INFO: Record<ActiveId, { name: string; icon: string }> = {
+  zap: { name: 'Zap', icon: '⚡' },
+  squeal: { name: 'Squeal', icon: '📢' },
+  tailwhip: { name: 'Whip', icon: '〰' },
+  portal: { name: 'Portal', icon: '🚪' },
+  decoy: { name: 'Decoy', icon: '🐷' },
+  potion: { name: 'Potion', icon: '🧪' },
+  smash: { name: 'Smash', icon: '📱' },
+};
+export const LOADOUT_SLOTS = 6;
+/** Keyboard key for each loadout slot (number keys 1-6 work too). */
+export const SLOT_KEYS = ['Q', 'F', 'C', 'V', 'X', 'G'] as const;
+export const SLOT_CODES = ['KeyQ', 'KeyF', 'KeyC', 'KeyV', 'KeyX', 'KeyG'] as const;
+
+/** Beats in the opening story (Charig's prologue, then Kenji's). */
+export const OPENING_BEATS = 10;

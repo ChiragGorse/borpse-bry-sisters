@@ -296,6 +296,17 @@ body {
     radial-gradient(ellipse at center, transparent 58%, rgb(20 12 8 / 0.28) 100%);
   text-shadow: 2px 2px 0 rgb(42 26 18 / 0.9);
 }
+/* "back in the lab": the memory plays out in faded, vignetted sepia */
+.cutscene-memory-tint {
+  position: absolute;
+  inset: 0;
+  backdrop-filter: sepia(0.75) saturate(0.8) brightness(1.05);
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(60, 35, 10, 0.55) 100%);
+  animation: memory-in 0.5s ease-out both;
+}
+@keyframes memory-in {
+  from { opacity: 0; }
+}
 .cutscene-bar {
   position: absolute;
   left: 0;

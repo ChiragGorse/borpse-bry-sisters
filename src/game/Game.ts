@@ -13,6 +13,8 @@ import {
   makeAllen,
   makeRickley,
   makeKingger,
+  makeCharig,
+  makeKioff,
   makeTrout,
   makeGrillbot,
   makeSpitter,
@@ -39,8 +41,9 @@ import {
   type TurretModel,
   type PotModel,
 } from './models';
-import { COURSES, HOG_NAMES, UPGRADES, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
+import { ACTIVE_IDS, ACTIVE_INFO, COURSES, HOG_NAMES, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, SLOT_KEYS, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
+import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
 import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
@@ -69,7 +72,21 @@ const angLerp = (a: number, b: number, t: number) => a + angDiff(a, b) * Math.mi
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const CONTROLLER_ACTIONS = Object.values(PAD_ACTIONS);
 
-/** Keyboard / mouse codes for each simulation button. */
+/** The simulation button each loadout ability fires. */
+const ACTIVE_BTN: Record<ActiveId, number> = {
+  zap: BTN.zap,
+  squeal: BTN.squeal,
+  tailwhip: BTN.whip,
+  portal: BTN.portal,
+  decoy: BTN.decoy,
+  potion: BTN.potion,
+  smash: BTN.smash,
+};
+/** Where a newly bought ability goes if that slot is free (zap, squeal and whip keep their old keys). */
+const PREFERRED_SLOT: Partial<Record<ActiveId, number>> = { zap: 0, squeal: 1, tailwhip: 2, portal: 3, smash: 4, potion: 5 };
+const SLOT_PAD: (keyof typeof PAD_ACTIONS)[] = ['zap', 'squeal', 'whip', 'slot4', 'slot5', 'slot6'];
+
+/** Keyboard / mouse codes for each simulation button (Q/F/C are Allen's; pigs use loadout slots). */
 const BUTTON_KEYS: [number, string[]][] = [
   [BTN.attack, ['Mouse0', 'KeyJ']],
   [BTN.charge, ['Mouse2', 'KeyK']],
@@ -160,6 +177,7 @@ export class Game {
   private world: World;
   private forest: ForestWorld | null = null;
   private sfx = new Sfx();
+  private music = new Music();
   private fx: HTMLDivElement;
   private arrow: HTMLDivElement;
   private minimap: HTMLCanvasElement | null = null;
@@ -234,11 +252,16 @@ export class Game {
   /* models */
   private players = new Map<number, PlayerView>();
   private openingPigs: KenjiModel[] = [];
+  /** Cutscene-only Path Guppy (an AL kid in the war) and the "back in the lab" memory props. */
+  private cutGuppy!: GuppyModel;
+  private cutProps!: { group: THREE.Group; screen: THREE.Group; tripod: THREE.Group; lab: THREE.Group; flask: THREE.Mesh; screenMat: THREE.MeshBasicMaterial; brew: THREE.MeshStandardMaterial };
   /** Opening-story bookkeeping: which beat is playing, which one-shot effects fired, pigs eaten so far. */
   private cut: { step: number; fired: Set<string>; eaten: number } = { step: -1, fired: new Set(), eaten: 0 };
   private aModel: AllenModel;
   private rick: NpcModel;
   private king: NpcModel;
+  private charig: NpcModel;
+  private kioff: NpcModel;
   private trout: TroutModel;
   private troutLeap = 0;
   private troutLeapNext = 7;
@@ -268,6 +291,10 @@ export class Game {
   private memorialViews = new Map<number, THREE.Group>();
   private wildViews = new Map<number, KenjiModel>();
   private allyViews = new Map<number, AllyView>();
+  private decoyViews = new Map<number, THREE.Group>();
+  /** Which active ability sits in each of the six slots (this browser's choice). */
+  private loadout: (ActiveId | null)[] = Array(LOADOUT_SLOTS).fill(null);
+  private knownActives = new Set<ActiveId>();
 
   constructor(container: HTMLElement, onHud: (s: HudState) => void, opts: GameOptions = {}) {
     this.container = container;
@@ -354,9 +381,19 @@ export class Game {
     this.trout.root.position.set(SPOT.trout.x, 0, SPOT.trout.z);
     this.trout.root.scale.setScalar(1.32);
     this.trout.root.rotation.y = PI / 2;
-    this.scene.add(this.rick.root, this.king.root, this.trout.root);
+    this.charig = makeCharig();
+    this.charig.root.position.set(SPOT.charig.x, 0, SPOT.charig.z);
+    this.kioff = makeKioff();
+    this.kioff.root.position.set(SPOT.kioff.x, 0, SPOT.kioff.z);
+    this.scene.add(this.rick.root, this.king.root, this.trout.root, this.charig.root, this.kioff.root);
+    this.cutGuppy = makePathGuppy();
+    this.cutGuppy.hp.group.visible = false;
+    this.cutGuppy.root.visible = false;
+    this.scene.add(this.cutGuppy.root);
+    this.cutProps = this.makeCutProps();
+    this.scene.add(this.cutProps.group);
     // characters stay evenly lit: no self-shadow speckle on the faceted bodies, and they read clearly in shade
-    for (const o of [this.aModel.root, this.rick.root, this.king.root, this.trout.root])
+    for (const o of [this.aModel.root, this.rick.root, this.king.root, this.trout.root, this.charig.root, this.kioff.root])
       o.traverse((c) => {
         c.receiveShadow = c.castShadow;
       });
@@ -367,6 +404,8 @@ export class Game {
       [SPOT.bell.x, 5.4, SPOT.bell.z],
       [SPOT.hunt.x, 7.6, SPOT.hunt.z],
       [SPOT.trout.x, 3.2, SPOT.trout.z],
+      [SPOT.kioff.x, 4.1, SPOT.kioff.z],
+      [SPOT.charig.x, 4.1, SPOT.charig.z],
     ]) {
       const m = part(this.scene, new THREE.OctahedronGeometry(0.42, 0), glow(0xffc93c, 1.4), x, y, z, { shadow: false });
       this.markers.push(m);
@@ -609,6 +648,8 @@ export class Game {
         ['rickley', makeRickley().body, [0, 2.3, 0], [1.3, 2.6, 4.4]],
         ['kingger', makeKingger().body, [0, 2.25, 0], [1.3, 2.5, 4.0]],
         ['trout', makeTrout(false).root, [0, 0.56, 0.14], [2.75, 1.22, 2.65]],
+        ['charig', makeCharig().body, [0, 2.3, 0], [1.2, 2.5, 4.2]],
+        ['kioff', makeKioff().body, [0, 2.3, 0], [1.2, 2.5, 4.2]],
       ];
       for (const [name, obj, tgt, pos] of shots) {
         s.add(obj);
@@ -641,6 +682,10 @@ export class Game {
 
   private bind() {
     window.addEventListener('keydown', this.onKeyDown);
+    // any click or key starts the music (browsers block sound until then)
+    this.sfx.onUnlock = () => this.music.unlock();
+    window.addEventListener('pointerdown', this.onAnyGesture);
+    window.addEventListener('keydown', this.onAnyGesture);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -661,6 +706,8 @@ export class Game {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('pointerdown', this.onAnyGesture);
+    window.removeEventListener('keydown', this.onAnyGesture);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
@@ -672,6 +719,7 @@ export class Game {
     if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
     this.parts.dispose();
     this.sfx.dispose();
+    this.music.dispose();
     this.gfx.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -687,6 +735,8 @@ export class Game {
   };
 
   /* ───────────────────────── input ───────────────────────── */
+
+  private onAnyGesture = () => this.music.unlock();
 
   private onKeyDown = (e: KeyboardEvent) => {
     const code = e.code;
@@ -869,6 +919,14 @@ export class Game {
     const rz = -Math.sin(this.yaw);
     let buttons = 0;
     for (const [bit, codes] of BUTTON_KEYS) if (codes.some((c) => this.pressed.has(c))) buttons |= bit;
+    if (!this.asAllen) {
+      // a pig's ability keys are loadout slots: each fires whatever ability sits in it
+      buttons &= ~(BTN.zap | BTN.squeal | BTN.whip);
+      for (let i = 0; i < LOADOUT_SLOTS; i++) {
+        const id = this.loadout[i];
+        if (id && (this.pressed.has(SLOT_CODES[i]) || this.pressed.has(`Digit${i + 1}`))) buttons |= ACTIVE_BTN[id];
+      }
+    }
     return { mx: fx * iz + rx * ix, mz: fz * iz + rz * ix, buttons };
   }
 
@@ -1025,6 +1083,7 @@ export class Game {
 
   toggleMute() {
     this.sfx.setMuted(!this.sfx.muted);
+    this.music.setMuted(this.sfx.muted);
     this.emit();
   }
 
@@ -1046,6 +1105,8 @@ export class Game {
     this.aModel.root.visible = false;
     this.wasOpening = !!this.sim.opening;
     this.cut = { step: -1, fired: new Set(), eaten: 0 };
+    this.loadout = Array(LOADOUT_SLOTS).fill(null);
+    this.knownActives.clear();
     this.processEvents();
     this.lock();
     this.emit();
@@ -1132,6 +1193,78 @@ export class Game {
     this.emit();
   }
 
+  /** The "back in the lab" memory set: a Roblox-ish game on a big monitor, a phone on a tripod, a chemistry bench. */
+  private makeCutProps() {
+    const group = new THREE.Group();
+    group.visible = false;
+    const std = (c: number) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
+    const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.castShadow = true;
+      parent.add(m);
+      return m;
+    };
+    const dark = std(0x26262c);
+    // monitor on a desk, screen drawn with blocky little avatars
+    const screen = new THREE.Group();
+    add(screen, new THREE.BoxGeometry(3.2, 0.12, 1.4), std(0x8a6a48), 0, 1.0, 0);
+    for (const s of [-1, 1]) add(screen, new THREE.BoxGeometry(0.12, 1.0, 1.2), std(0x6e5238), 1.45 * s, 0.5, 0);
+    add(screen, new THREE.BoxGeometry(2.6, 1.6, 0.12), dark, 0, 2.05, -0.3);
+    const cv = document.createElement('canvas');
+    cv.width = 128;
+    cv.height = 80;
+    const g = cv.getContext('2d');
+    if (g) {
+      g.fillStyle = '#7ec8ff';
+      g.fillRect(0, 0, 128, 80);
+      g.fillStyle = '#4caf50';
+      g.fillRect(0, 56, 128, 24);
+      for (const [x, y, w, h, c] of [[12, 28, 16, 16, '#c0c0c0'], [70, 20, 26, 36, '#d35400'], [100, 40, 14, 16, '#f1c40f']] as const) {
+        g.fillStyle = c;
+        g.fillRect(x, y, w, h);
+      }
+      // two blocky avatars
+      for (const [x, c] of [[40, '#2f6d4e'], [56, '#c0392b']] as const) {
+        g.fillStyle = '#f5d76e';
+        g.fillRect(x, 30, 8, 8);
+        g.fillStyle = c;
+        g.fillRect(x - 1, 38, 10, 10);
+        g.fillStyle = '#2c3e80';
+        g.fillRect(x, 48, 8, 8);
+      }
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const screenMat = new THREE.MeshBasicMaterial({ map: tex });
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.4), screenMat);
+    pane.position.set(0, 2.05, -0.23);
+    screen.add(pane);
+    screen.position.set(-7, 0, 45);
+    // phone on a tripod, with a red "recording" light
+    const tripod = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const leg = add(tripod, new THREE.CylinderGeometry(0.04, 0.04, 1.9, 6), dark, 0, 0.9, 0);
+      leg.rotation.set(0.28 * Math.cos((i * TAU) / 3), 0, 0.28 * Math.sin((i * TAU) / 3));
+    }
+    add(tripod, new THREE.BoxGeometry(0.5, 0.85, 0.08), std(0x1b1b1f), 0, 2.15, 0);
+    add(tripod, new THREE.SphereGeometry(0.06, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff2a2a }), 0.16, 2.48, 0.05);
+    tripod.position.set(0, 0, 42);
+    // lab bench, a rack of tubes and the flask
+    const lab = new THREE.Group();
+    add(lab, new THREE.BoxGeometry(3.4, 0.14, 1.4), std(0xdfe6ea), 0, 1.0, 0);
+    for (const s of [-1, 1]) add(lab, new THREE.BoxGeometry(0.14, 1.0, 1.2), std(0x9aa5ad), 1.55 * s, 0.5, 0);
+    const brew = new THREE.MeshStandardMaterial({ color: 0x5dff9d, emissive: 0x2bd46a, emissiveIntensity: 0.8, transparent: true, opacity: 0.85 });
+    const flask = add(lab, new THREE.SphereGeometry(0.34, 12, 10), brew, 0.4, 1.42, 0);
+    add(lab, new THREE.CylinderGeometry(0.09, 0.11, 0.42, 8), new THREE.MeshStandardMaterial({ color: 0xd8f4ff, transparent: true, opacity: 0.5 }), 0.4, 1.86, 0);
+    for (const [i, c] of [0xff5d8f, 0x5db8ff, 0xffd23f].entries())
+      add(lab, new THREE.CylinderGeometry(0.07, 0.07, 0.46, 8), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4 }), -0.9 + i * 0.24, 1.3, 0);
+    lab.position.set(7, 0, 45);
+    group.add(screen, tripod, lab);
+    return { group, screen, tripod, lab, flask, screenMat, brew };
+  }
+
   /* ───────────────────────── cinematic actors ───────────────────────── */
 
   private restoreCinematicActors() {
@@ -1159,7 +1292,23 @@ export class Game {
 
     this.trout.root.position.set(SPOT.trout.x, 0, SPOT.trout.z);
     this.trout.root.rotation.set(0, PI / 2, 0);
+    for (const [n, spot] of [[this.charig, SPOT.charig], [this.kioff, SPOT.kioff]] as const) {
+      n.root.position.set(spot.x, 0, spot.z);
+      n.root.rotation.set(0, 0, 0);
+      n.body.position.y = 0;
+      n.head.rotation.set(0, 0, 0);
+      n.armR.rotation.set(0, 0, 0);
+      n.armL.rotation.set(0, 0, 0);
+    }
 
+    this.trout.root.position.y = 0;
+    this.trout.body.rotation.set(0, 0, 0);
+    this.cutGuppy.root.visible = false;
+    this.cutGuppy.root.rotation.set(0, 0, 0);
+    this.cutProps.group.visible = false;
+    this.cutProps.screen.visible = this.cutProps.tripod.visible = this.cutProps.lab.visible = false;
+
+    this.aModel.root.scale.setScalar(1);
     this.aModel.root.position.set(0, 0, 61);
     this.aModel.root.rotation.set(0, PI, 0);
     this.aModel.armR.rotation.set(-2.2, 0, 0);
@@ -1284,6 +1433,8 @@ export class Game {
     this.rick.root.visible = farm;
     this.king.root.visible = farm;
     this.trout.root.visible = farm;
+    this.charig.root.visible = farm;
+    this.kioff.root.visible = farm;
     for (const marker of this.markers) marker.visible = farm && this.sim.mode === 'intermission';
     this.parts.clear();
     this.keys.clear();
@@ -1313,9 +1464,18 @@ export class Game {
     else if (this.online && (this.screen === 'shop' || this.screen === 'paused')) this.updateOnlineBackground(dt);
     else this.updateIdle(dt);
     this.updateSky(dt);
+    this.updateMusic();
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);
   };
+
+  /** Farm songs normally, the forest song in the forest, and the fight song from the dinner bell until Allen is beaten (or the farm falls). */
+  private updateMusic() {
+    const sim = this.sim;
+    const inGame = this.screen === 'play' || this.screen === 'paused' || this.screen === 'shop';
+    const fight = inGame && sim.mode === 'combat' && !sim.opening && !sim.outcome;
+    this.music.update(fight ? 'fight' : inGame && sim.area === 'forest' ? 'forest' : 'farm');
+  }
 
   private updateIdle(dt: number) {
     if (this.screen === 'title') {
@@ -1551,6 +1711,10 @@ export class Game {
       if (A.enraged && Math.random() < dt * 24) {
         this.parts.motes(A.x, A.y + 1.4 + Math.random() * 2.2, A.z, 1, Math.random() < 0.5 ? 0xff4a1f : 0xffb83d, 3.2, 0.18, 0.65, -3.5, 3, 1.5, 4.0);
       }
+      // Tilted after Smash Battles: angry red steam
+      if (A.tilt > 0 && Math.random() < dt * 26) {
+        this.parts.motes(A.x, A.y + 1.6 + Math.random() * 2.4, A.z, 1, 0xff3b30, 3.4, 0.2, 0.6, -3.5, 4, 1.6, 4.2);
+      }
       // Allen Exposed aura: cracked shimmering cyan sparks
       if (A.exposed > 0 && Math.random() < dt * 22) {
         this.parts.motes(A.x, A.y + 1.5 + Math.random() * 2.4, A.z, 1, 0x62f4ff, 2.8, 0.17, 0.55, -2.2, -4, 1.55, 3.8);
@@ -1574,13 +1738,14 @@ export class Game {
   }
 
   /**
-   * The opening story, played out on the real farm. Each of its five beats lasts 4.8 s: the camera follows a
+   * The opening story, played out on the real farm. Charig tells the backstory (beats 0-4), then the
+   * farm's story follows (beats 5-9). Each beat lasts 4.8 s: the camera follows a
    * keyframed path while the cast acts out the caption, with effects and sounds fired at set moments.
    */
   private updateOpeningCutscene(dt: number) {
     const opening = this.sim.opening;
     if (!opening) return;
-    const step = Math.min(opening.step, 4);
+    const step = Math.min(opening.step, OPENING_BEATS - 1);
     const ct = clamp(4.8 - opening.t, 0, 4.8); // seconds into this beat
     const T = this.time;
     const cam = this.camera;
@@ -1640,7 +1805,260 @@ export class Game {
     };
     let view = shot([[0, [16, 11, -8], [0, 2, 6]]]);
 
+    /** A kid (Charig, Kioff, Rickley, Kingger) walking or running, arms swinging. */
+    const walkKid = (n: NpcModel, x: number, z: number, heading: number, speed: number, ph: number) => {
+      n.root.visible = true;
+      n.root.position.set(x, 0, z);
+      n.root.rotation.y = heading;
+      const sw = Math.sin(T * (5 + speed) + ph) * Math.min(0.9, speed * 0.12);
+      n.armL.rotation.x = sw;
+      n.armR.rotation.x = -sw;
+      n.body.position.y = Math.abs(Math.sin(T * (5 + speed) + ph)) * Math.min(0.15, speed * 0.02);
+    };
+    const G = this.cutGuppy;
+    const walkGuppy = (x: number, z: number, heading: number, speed: number, ph: number) => {
+      G.root.visible = true;
+      G.root.position.set(x, 0, z);
+      G.root.rotation.y = heading;
+      const sw = Math.sin(T * (5 + speed) + ph) * Math.min(0.8, speed * 0.1);
+      G.arms[0].rotation.x = sw;
+      G.arms[1].rotation.x = -sw;
+      G.boots[0].rotation.x = -sw;
+      G.boots[1].rotation.x = sw;
+      G.tail.rotation.y = Math.sin(T * 8 + ph) * 0.4;
+    };
+    const flopTrout = (x: number, z: number, heading: number, hop: number) => {
+      const F = this.trout;
+      F.root.position.set(x, hop, z);
+      F.root.rotation.y = heading;
+      F.tail.rotation.y = Math.sin(T * 14) * 0.6;
+    };
+    const props = this.cutProps;
+    const R = this.rick;
+    const K = this.king;
+    const C = this.charig;
+    const X = this.kioff;
+    // the battlefield: the open grass inside the gate
+    /** Allen before the greed got him: kid-sized. */
+    const YOUNG = 0.55;
+    const bx = 0;
+    const bz = 45;
+
     if (step === 0) {
+      // BEFORE ANY OF THIS: Charig on the porch, phone glowing, remembering
+      const cx = SPOT.charig.x;
+      const cz = SPOT.charig.z;
+      C.root.visible = true;
+      C.root.position.set(cx, 0, cz);
+      C.root.rotation.y = lerp(0.6, 0, span(0.4, 1.8));
+      C.head.rotation.x = lerp(0.35, -0.08, span(1.8, 2.6)) + Math.sin(T * 1.2) * 0.03;
+      C.armR.rotation.x = lerp(-1.1, -0.2, span(2.0, 2.8));
+      C.armL.rotation.x = span(3.0, 3.6) * -0.9 * (1 - span(4.1, 4.8));
+      C.body.position.y = Math.sin(T * 1.5) * 0.02;
+      once('sigh', 2.4, () => this.parts.motes(cx, 2.6, cz + 0.6, 6, 0xffffff, 0.8, 0.2, 1.4, 0, 0.6, 0.3, 1.4));
+      view = shot([
+        [0, [cx + 9, 6, cz + 14], [cx, 1.6, cz]],
+        [2.4, [cx + 4, 3.0, cz + 8], [cx, 2.0, cz]],
+        [4.8, [cx + 1.6, 2.5, cz + 4.4], [cx, 2.2, cz]],
+      ]);
+    } else if (step === 1) {
+      // THE AL VS GEN ED WAR: two lines stare each other down, then charge
+      const charge = span(1.6, 2.9);
+      const clash = ct >= 2.9;
+      const meet = (z0: number, z1: number) => lerp(z0, z1, charge) + (clash ? Math.sin(T * 16) * 0.25 : 0);
+      const run = charge > 0 && charge < 1 ? 9 : clash ? 4 : 0.3;
+      // AL kids, south line, facing north (+z)
+      trot(kModel, bx - 5, meet(bz - 7, bz - 1.4), 0, run, 0);
+      stomp(bx - 1.6, meet(bz - 8, bz - 2), 0, run > 1 ? T * 9 : 0, clash ? 0.5 + Math.sin(T * 12) * 0.5 : 0);
+      A.pivot.scale.setScalar(1);
+      A.root.scale.setScalar(YOUNG);
+      walkKid(C, bx + 1.6, meet(bz - 7, bz - 1.2), 0, run, 1);
+      walkGuppy(bx + 4.2, meet(bz - 7, bz - 1.2), 0, run, 2);
+      walkKid(R, bx + 6.6, meet(bz - 7, bz - 1.2), 0, run, 3);
+      // Gen Eds, north line, facing south
+      walkKid(X, bx - 3.2, meet(bz + 7, bz + 1.4), PI, run, 4);
+      walkKid(K, bx + 0.6, meet(bz + 7, bz + 1.4), PI, run, 5);
+      if (K.spin) K.spin.rotation.y += dt * 30;
+      flopTrout(bx + 4.6, meet(bz + 7, bz + 1.6), -PI / 2, Math.abs(Math.sin(T * 7)) * (run > 1 ? 1.1 : 0.25));
+      if (!clash) {
+        // fists up in the standoff
+        for (const n of [C, R, X, K]) if (charge === 0) n.armR.rotation.x = -1.4 + Math.sin(T * 6) * 0.15;
+      } else if (Math.floor(T * 7) !== Math.floor((T - dt) * 7)) {
+        const x = bx + (Math.random() - 0.5) * 12;
+        this.parts.sparks(x, 1.5 + Math.random(), bz, 8, 0xffd23f, 6, 0.14, 0.4, { up: 1, grav: 8, hdr: 3, altColor: 0xffffff });
+        this.parts.dust(x, 0.2, bz, 4, 0xe2d3b8, { spread: 1, speed: 3, rise: 1, size0: 0.6, size1: 1.8, life: 0.5 });
+        this.sfx.play(Math.random() < 0.5 ? 'hit' : 'slam');
+        this.shake = Math.max(this.shake, 0.25);
+      }
+      if (charge > 0 && charge < 1 && Math.floor(T * 5) !== Math.floor((T - dt) * 5)) this.parts.dust(bx, 0.2, lerp(bz - 7, bz - 1, charge), 6, 0xe2d3b8, { spread: 7, speed: 2, rise: 1, size0: 0.5, size1: 1.6, life: 0.5 });
+      once('warcry', 1.6, () => {
+        this.sfx.play('roar');
+        this.sfx.play('squeal');
+      });
+      once('clash', 2.9, () => {
+        this.sfx.play('thunder');
+        this.parts.shockWall(bx, 0.1, bz, 0xffc93c, 0.8, 9, 0.7, 2.6, 0.5, 6);
+        this.parts.flash(bx, 2, bz, 0xfff1b8, 18, 0.25, 18);
+        this.shake = Math.max(this.shake, 0.8);
+      });
+      view = shot([
+        [0, [bx + 24, 6, bz], [bx, 2, bz]],
+        [1.6, [bx + 19, 4.6, bz - 1], [bx, 2.2, bz]],
+        [2.9, [bx + 9, 7, bz - 8], [bx, 1.8, bz]],
+        [4.8, [bx + 6, 9, bz - 12], [bx, 1.6, bz + 1]],
+      ]);
+    } else if (step === 2) {
+      // VICTORY… AND THEN A FARM: the Gen Eds flee, the AL kids cheer, forget why, and grab hoes
+      const flee = span(0, 2.2);
+      walkKid(X, bx - 3.2, bz + 1.4 + flee * 26, 0, flee < 1 ? 9 : 0, 4);
+      walkKid(K, bx + 0.6, bz + 1.4 + flee * 28, 0, flee < 1 ? 10 : 0, 5);
+      flopTrout(bx + 4.6, bz + 1.6 + flee * 24, 0, Math.abs(Math.sin(T * 9)) * 1.2);
+      if (flee >= 1) X.root.visible = K.root.visible = this.trout.root.visible = false;
+      const cheer = 1 - span(1.8, 2.3);
+      const confused = span(2.0, 2.6) * (1 - span(3.6, 4.0));
+      const leave = span(3.6, 4.8);
+      const hop = (ph: number) => Math.max(0, Math.sin(T * 9 + ph)) * 0.6 * cheer;
+      const crew: [NpcModel, number, number][] = [[C, bx + 1.6, 1], [R, bx + 6.6, 3]];
+      for (const [n, x, ph] of crew) {
+        walkKid(n, x - leave * 3, bz - 1.2 - leave * 7, lerp(0, PI + 0.3, leave), leave > 0 ? 6 : 0, ph);
+        n.root.position.y = hop(ph);
+        n.armR.rotation.x = lerp(n.armR.rotation.x, -2.9, cheer);
+        n.armL.rotation.x = lerp(n.armL.rotation.x, -2.9, cheer);
+        n.head.rotation.z = confused * 0.35 * (ph === 1 ? 1 : -1);
+      }
+      trot(kModel, bx - 5 - leave * 2, bz - 1.4 - leave * 7, lerp(0, PI, leave), leave > 0 ? 7 : 0, 0);
+      kModel.root.position.y = hop(0);
+      kModel.head.rotation.z = confused * 0.3;
+      walkGuppy(bx + 4.2 - leave * 2, bz - 1.2 - leave * 7, lerp(0, PI, leave), leave > 0 ? 6 : 0, 2);
+      G.root.position.y = hop(2);
+      G.root.rotation.z = confused * 0.25;
+      stomp(bx - 1.6 - leave * 2, bz - 2 - leave * 7, lerp(0, PI, leave), leave > 0 ? T * 7 : 0, cheer);
+      A.root.scale.setScalar(YOUNG);
+      A.head.rotation.z = confused * 0.3;
+      once('win', 0.3, () => {
+        this.sfx.play('bell');
+        this.parts.sparks(bx, 3, bz - 2, 40, 0xffd23f, 10, 0.18, 0.9, { up: 1, grav: 10, hdr: 4, altColor: 0x7df9ff });
+      });
+      once('huh', 2.2, () => {
+        this.sfx.play('oink');
+        this.floatText(bx, 5.5, bz - 2, '???', 'crit');
+      });
+      view = shot([
+        [0, [bx + 4, 3.4, bz - 11], [bx, 2.2, bz + 2]],
+        [2.4, [bx + 2, 4, bz - 9], [bx, 2.4, bz - 1]],
+        [4.8, [bx + 9, 9, bz - 10], [bx, 1, bz - 12]],
+      ]);
+    } else if (step === 3) {
+      // BACK IN THE LAB: Roblox, funny videos, and chemistry that went exactly as planned (no)
+      props.group.visible = true;
+      const part = ct < 1.6 ? 0 : ct < 3.2 ? 1 : 2;
+      props.screen.visible = part === 0;
+      props.tripod.visible = part === 1;
+      props.lab.visible = part === 2;
+      A.pivot.scale.setScalar(1);
+      A.root.scale.setScalar(YOUNG);
+      if (part === 0) {
+        const sx = props.screen.position.x;
+        const sz = props.screen.position.z;
+        // sat side by side, mashing keys
+        walkKid(C, sx - 1.1, sz + 2.2, PI, 0, 0);
+        C.armR.rotation.x = C.armL.rotation.x = -1.2 + Math.sin(T * 30) * 0.08;
+        C.body.position.y = Math.abs(Math.sin(T * 5)) * 0.05;
+        stomp(sx + 2.2, sz + 3.6, PI - 0.25, 0, 0);
+        A.armR.rotation.x = -1.3 + Math.sin(T * 28 + 1) * 0.1;
+        A.armL.rotation.x = -1.3 + Math.sin(T * 26) * 0.1;
+        A.jaw.scale.y = 1 + Math.abs(Math.sin(T * 5)) * 0.8; // laughing
+        once('clicky', 0.2, () => this.sfx.play('truffle'));
+        view = shot([
+          [0, [sx - 0.8, 3.2, sz + 9], [sx, 2.2, sz]],
+          [1.6, [sx - 0.2, 2.8, sz + 7.5], [sx + 0.4, 2.4, sz]],
+        ]);
+      } else if (part === 1) {
+        const tx = props.tripod.position.x;
+        const tz = props.tripod.position.z;
+        // Charig films; Allen does the worst dance ever recorded
+        walkKid(C, tx - 1.0, tz - 0.9, 0.4, 0, 0);
+        C.armR.rotation.x = -1.5;
+        C.body.position.y = Math.abs(Math.sin(T * 8)) * 0.1; // cracking up
+        stomp(tx + 0.4, tz + 5.5, PI, T * 10, 0.5 + Math.sin(T * 10) * 0.5);
+        A.root.rotation.y = PI + Math.sin(T * 6) * 0.6;
+        A.root.position.y = Math.max(0, Math.sin(T * 10)) * 0.5;
+        once('rec', 1.7, () => this.sfx.play('pop'));
+        once('lol', 2.4, () => this.sfx.play('oink'));
+        view = shot([
+          [1.6, [tx - 6.5, 3.8, tz - 5], [tx + 0.2, 2.4, tz + 3]],
+          [3.2, [tx - 5, 3.4, tz - 4], [tx + 0.2, 2.6, tz + 3.5]],
+        ]);
+      } else {
+        const lx = props.lab.position.x;
+        const lz = props.lab.position.z;
+        const boom = ct >= 4.1;
+        props.flask.scale.setScalar(boom ? 1 : 1 + Math.max(0, ct - 3.4) * 0.5 + Math.sin(T * 30) * 0.03);
+        props.brew.color.setHSL((T * 0.8) % 1, 0.9, 0.6);
+        props.brew.emissive.copy(props.brew.color).multiplyScalar(0.5);
+        walkKid(C, lx - 1.4, lz + 1.6, PI - 0.3, 0, 0);
+        stomp(lx + 2.6, lz + 3, PI + 0.5, 0, 0);
+        A.armR.rotation.x = -1.6; // pouring
+        const flinch = boom ? span(4.1, 4.4) : 0;
+        C.root.position.z += flinch * 0.8;
+        C.armL.rotation.x = C.armR.rotation.x = -2.6 * flinch;
+        A.armL.rotation.x = lerp(-0.35, -2.9, flinch);
+        if (!boom && Math.random() < dt * 14) this.parts.motes(lx + 0.4, 2.0, lz, 1, 0xd8f0c8, 0.6, 0.15, 0.7, -1, 0.6, 0.2, 1.6);
+        once('boom', 4.1, () => {
+          this.sfx.play('pop');
+          this.sfx.play('slam');
+          this.parts.hitBurst(lx + 0.4, 1.6, lz, 0x9dff6a, 1.6);
+          this.parts.motes(lx + 0.4, 1.8, lz, 26, 0xb9ffd0, 3, 0.4, 1.4, -2, 2.4, 0.8, 2.4);
+          this.shake = Math.max(this.shake, 0.4);
+        });
+        view = shot([
+          [3.2, [lx - 1, 3.6, lz + 8.5], [lx + 0.5, 1.9, lz]],
+          [4.8, [lx - 0.4, 3.2, lz + 7], [lx + 0.5, 2.1, lz]],
+        ]);
+      }
+    } else if (step === 4) {
+      // GREED AND HUNGER: Allen eats the whole harvest, and the others show him the gate
+      const eat = 1 - span(2.4, 2.8);
+      const kick = span(2.6, 4.6);
+      const belly = 1 + span(0, 2.4) * 0.35;
+      A.pivot.scale.set(belly, 1 / Math.sqrt(belly), belly);
+      const az = lerp(42, 62, kick);
+      stomp(0, az, kick > 0 ? PI : PI + Math.sin(T * 2) * 0.5, kick > 0 ? T * 6 : 0, 0);
+      A.root.scale.setScalar(lerp(YOUNG, 1, span(0.2, 2.4))); // growing with every bite
+      if (eat > 0) {
+        A.armR.rotation.x = -1.6 - Math.abs(Math.sin(T * 7)) * 1.2;
+        A.jaw.scale.y = 1 + Math.abs(Math.sin(T * 12)) * 1.5;
+        if (Math.floor(T * 4) !== Math.floor((T - dt) * 4)) {
+          this.sfx.play('chomp');
+          this.parts.emit(0, 4.3, az - 1, 8, [0xffd23f, 0xff8a3d, 0x7bd35a][Math.floor(T * 4) % 3], 4, 0.2, 0.5);
+        }
+      } else {
+        // backing out the gate, arms up, very sorry (not sorry)
+        A.armR.rotation.x = A.armL.rotation.x = -2.6;
+        A.jaw.scale.y = 1;
+      }
+      const march = span(1.8, 4.2);
+      const fz = lerp(30, 48, march);
+      walkKid(C, -2.4, fz, 0, march > 0 && march < 1 ? 6 : 0, 1);
+      walkKid(R, 2.6, fz - 0.6, 0, march > 0 && march < 1 ? 6 : 0, 3);
+      trot(kModel, -0.2, fz + 0.6, 0, march > 0 && march < 1 ? 8 : 0, 0);
+      walkGuppy(5.2, fz - 1.4, -0.2, march > 0 && march < 1 ? 6 : 0, 2);
+      // the pointing at the gate
+      const point = span(4.0, 4.4);
+      C.armR.rotation.x = lerp(C.armR.rotation.x, -1.6, point);
+      R.armR.rotation.x = lerp(R.armR.rotation.x, -1.6, point);
+      once('caught', 1.8, () => this.sfx.play('deny'));
+      once('out', 4.3, () => {
+        this.sfx.play('slam');
+        this.parts.dustRing(0, 0.2, 56, 12, 1.2, 0xd9c29e, 7, 2, 0.7);
+        this.shake = Math.max(this.shake, 0.3);
+      });
+      view = shot([
+        [0, [9, 6, 34], [0, 3, 42]],
+        [2.4, [7, 5, 30], [0, 2.6, 44]],
+        [4.8, [4, 4, 34], [0, 2.4, 54]],
+      ]);
+    } else if (step === 5) {
       // THE EMPTY PEN: the herd grazes by the gate until Allen bursts through
       const home: [number, number][] = [[-5, 42], [-1.5, 45], [2.5, 41], [5.5, 44], [0.5, 38.5]];
       const allenIn = span(1.6, 3.4);
@@ -1680,7 +2098,7 @@ export class Game {
         [2.0, [14, 6, 32], [0, 1.6, 46]],
         [4.8, [6, 2.6, 38], [0, 4, 50]],
       ]);
-    } else if (step === 1) {
+    } else if (step === 6) {
       // NO PIG LEFT BEHIND: Allen plucks the pigs up one by one and swallows them whole
       const cx = 0;
       const cz = 42;
@@ -1736,7 +2154,7 @@ export class Game {
         pos: [cx + Math.sin(orbit) * -13, 6 + Math.sin(ct * 0.6) * 1.2, cz + Math.cos(orbit) * -13],
         look: [cx, 3.6, cz],
       };
-    } else if (step === 2) {
+    } else if (step === 7) {
       // BROKE, BUT NOT BEATEN: Rickley counts his last coins; Kenji trots up
       const R = this.rick;
       const rx = SPOT.rickley.x;
@@ -1765,7 +2183,7 @@ export class Game {
         [2.6, [rx - 8, 4.2, rz - 9], [rx - 0.6, 1.8, rz + 1]],
         [4.8, [rx - 5.4, 2.6, rz - 5.6], [rx - 0.8, 1.4, rz + 1.6]],
       ]);
-    } else if (step === 3) {
+    } else if (step === 8) {
       // A VERY QUESTIONABLE RECRUIT: Kingger's coil crackles, then gives Kenji a jolt
       const K = this.king;
       const kx = SPOT.kingger.x;
@@ -1903,7 +2321,7 @@ export class Game {
     const el = this.arrow;
     const forest = this.sim.area === 'forest';
     el.classList.toggle('trail-arrow', forest);
-    if (!A.active && !forest) {
+    if ((!A.active || A.state === 'backrooms') && !forest) {
       el.style.display = 'none';
       return;
     }
@@ -2165,12 +2583,40 @@ export class Game {
       },
     );
 
+    this.syncList(
+      sim.decoys,
+      this.decoyViews,
+      (d) => {
+        // a glowing low-poly pig: Kioff's wireframe render of Kenji
+        const m = makeKenji(0x5ff2ff, false);
+        const mat = new THREE.MeshBasicMaterial({ color: 0x5ff2ff, wireframe: true, transparent: true, opacity: 0.9 });
+        m.root.traverse((c) => {
+          if (c instanceof THREE.Mesh) {
+            c.material = mat;
+            c.castShadow = false;
+          }
+        });
+        m.root.position.set(d.x, 0, d.z);
+        this.scene.add(m.root);
+        return m.root;
+      },
+      (g, d) => {
+        g.position.set(d.x, Math.abs(Math.sin(this.time * 5)) * 0.25, d.z);
+        g.rotation.y += dt * 3;
+        // flickers as it runs out
+        g.visible = d.life > 1.2 || Math.floor(this.time * 12) % 2 === 0;
+      },
+      (g) => this.discard(g),
+    );
+
     /* static props that depend on simulation state */
     this.world.group.visible = farm;
     if (this.forest) this.forest.group.visible = !farm;
     this.rick.root.visible = farm;
     this.king.root.visible = farm;
     this.trout.root.visible = farm;
+    this.charig.root.visible = farm;
+    this.kioff.root.visible = farm;
     this.turret.root.visible = farm && sim.levels.cannon > 0;
     this.turret.head.rotation.y = sim.turretYaw;
     // crops and pies disappear bite by bite as Allen eats them
@@ -2448,7 +2894,8 @@ export class Game {
       this.aModel.pivot.scale.setScalar(1);
     }
     this.wasAllenActive = A.active;
-    this.aModel.root.visible = A.active;
+    // lost in the Backrooms: nowhere to be seen
+    this.aModel.root.visible = A.active && A.state !== 'backrooms';
     if (!A.active) {
       this.slamRing.visible = false;
       this.dashLine.visible = false;
@@ -2692,13 +3139,15 @@ export class Game {
     };
     each(this.rick, SPOT.rickley, 0);
     each(this.king, SPOT.kingger, 2);
+    each(this.charig, SPOT.charig, 4);
+    each(this.kioff, SPOT.kioff, 6);
     if (sim.kingCast > 0) {
       // Kingger thrusts his arm skyward & spins his propeller beanie at turbo speed while firing Lightning Zap!
       this.king.armR.rotation.x = -3.05;
       if (this.king.spin) this.king.spin.rotation.y += dt * 45;
     }
     this.animateTrout(dt, inter, panic);
-    const markerY = [4.3, 4.1, 5.4, 7.6, 3.2];
+    const markerY = [4.3, 4.1, 5.4, 7.6, 3.2, 4.1, 4.1];
     this.markers.forEach((m, i) => {
       m.visible = inter;
       m.rotation.y = T * 2 + i;
@@ -2777,7 +3226,9 @@ export class Game {
       if (A.shielded) {
         tag = 'Invincible — smash the sauce jars!';
         alert = true;
-      } else if (A.state === 'guard') tag = 'Wok Guard — flank him or land a finisher';
+      } else if (A.state === 'backrooms') tag = 'Lost in the Backrooms';
+      else if (A.tilt > 0) tag = `TILTED — faster and angrier (${Math.ceil(A.tilt)}s)`;
+      else if (A.state === 'guard') tag = 'Wok Guard — flank him or land a finisher';
       else if (A.state === 'spin' || A.state === 'spinWind') tag = 'Sizzle Spin — invincible, keep away!';
       else if (A.exposed > 0) tag = 'EXPOSED — +35% damage!';
       else if (A.state === 'eating' && target) {
@@ -2859,7 +3310,7 @@ export class Game {
       },
       prompt: this.asAllen ? sim.allenPrompt : k.prompt,
       subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : null,
-      opening: sim.opening ? { step: sim.opening.step, total: 5 } : null,
+      opening: sim.opening ? { step: sim.opening.step, total: OPENING_BEATS } : null,
       banner: sim.banner ? { title: sim.banner.title, sub: sim.banner.sub, key: sim.banner.key } : null,
       objective,
       shopNpc: k.shopNpc,
@@ -2900,7 +3351,78 @@ export class Game {
           }
         : null,
       stats: { ...sim.stats },
+      ...this.loadoutHud(k),
     });
+  }
+
+  /* ───────────────────────── ability loadout ───────────────────────── */
+
+  /** Keeps the loadout in line with what the herd owns: new abilities drop into a free slot, lost ones leave. */
+  private syncLoadout() {
+    const lv = this.sim.levels;
+    for (const id of ACTIVE_IDS) {
+      if (lv[id] <= 0) {
+        this.knownActives.delete(id);
+        const i = this.loadout.indexOf(id);
+        if (i >= 0) this.loadout[i] = null;
+        continue;
+      }
+      if (this.knownActives.has(id)) continue;
+      this.knownActives.add(id);
+      if (this.loadout.includes(id)) continue;
+      const pref = PREFERRED_SLOT[id];
+      const slot = pref !== undefined && this.loadout[pref] === null ? pref : this.loadout.indexOf(null);
+      if (slot >= 0) this.loadout[slot] = id;
+    }
+  }
+
+  /** Puts an ability in a slot (or empties it with null). An ability already in another slot swaps places. */
+  setLoadoutSlot(slot: number, id: ActiveId | null) {
+    if (slot < 0 || slot >= LOADOUT_SLOTS) return;
+    if (id) {
+      const was = this.loadout.indexOf(id);
+      if (was >= 0) this.loadout[was] = this.loadout[slot];
+    }
+    this.loadout[slot] = id;
+    this.emit();
+  }
+
+  /** Cooldown left, as a fraction, for one of this pig's active abilities. */
+  private activeCd(k: Player, id: ActiveId): number {
+    const lv = this.sim.levels;
+    switch (id) {
+      case 'zap':
+        return k.zapCd / zapCooldown(lv.zap);
+      case 'squeal':
+        return k.squealCd / (lv.squeal >= 2 ? 11 : 14);
+      case 'tailwhip':
+        return k.whipCd / (lv.tailwhip >= 2 ? 1.5 : 2.3);
+      case 'portal':
+        return k.portalCd / (lv.portal >= 2 ? 15 : 18);
+      case 'decoy':
+        return k.decoyCd / 16;
+      case 'potion':
+        return k.potionCd / (lv.potion >= 2 ? 15 : 20);
+      case 'smash':
+        return k.smashCd / (lv.smash >= 2 ? 24 : 30);
+    }
+  }
+
+  private loadoutHud(k: Player): Pick<HudState, 'actives' | 'owned'> {
+    this.syncLoadout();
+    const pad = this.padActive ? this.padLayout : null;
+    return {
+      actives: this.loadout.map((id, slot) => ({
+        slot,
+        key: pad ? padActionLabel(pad, SLOT_PAD[slot]) : SLOT_KEYS[slot],
+        code: SLOT_CODES[slot],
+        id,
+        name: id ? ACTIVE_INFO[id].name : '',
+        icon: id ? ACTIVE_INFO[id].icon : '',
+        cd: id ? clamp(this.activeCd(k, id), 0, 1) : 0,
+      })),
+      owned: ACTIVE_IDS.filter((id) => this.sim.levels[id] > 0),
+    };
   }
 
   /** Allen's moves and cooldowns for the HUD when a person plays him. */
@@ -3013,6 +3535,8 @@ export class Game {
     dot(SPOT.rickley.x, SPOT.rickley.z, 5, '#c2392b', '#fbf3df');
     dot(SPOT.kingger.x, SPOT.kingger.z, 5, '#2bb3c0', '#fbf3df');
     dot(SPOT.trout.x, SPOT.trout.z, 5, '#f0758d', '#fbf3df');
+    dot(SPOT.kioff.x, SPOT.kioff.z, 5, '#8a6ad1', '#fbf3df');
+    dot(SPOT.charig.x, SPOT.charig.z, 5, '#2f9e6b', '#fbf3df');
     for (const pd of sim.puddles) dot(pd.x, pd.z, 4.5, 'rgba(235,52,24,0.45)');
     for (const b of sim.bots) {
       const col =
@@ -3031,7 +3555,7 @@ export class Game {
     }
     for (const p of sim.pots) dot(p.x, p.z, 4.4 + Math.sin(this.time * 6) * 0.9, '#ffd23f', '#c2392b');
     const A = sim.A;
-    if (A.active) {
+    if (A.active && A.state !== 'backrooms') {
       const pulse = A.state === 'eating' ? 3 + Math.abs(Math.sin(this.time * 8)) * 4 : 0;
       if (pulse) dot(A.x, clamp(A.z, -60, 60), 8 + pulse, 'rgba(255,59,48,0.35)');
       dot(A.x, clamp(A.z, -60, 60), 7.5, '#6b3a8c', '#ffffff');

@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -21,9 +21,9 @@ export const MAX_NAME = 16;
 /* ───────── which fields of each entity go over the wire ───────── */
 
 export const KEYS = {
-  player: ['id', 'epoch', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick'],
+  player: ['id', 'epoch', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick', 'portalCd', 'decoyCd', 'potionCd', 'smashCd'],
   playerMeta: ['id', 'name', 'tint', 'maxHp', 'maxStam', 'flowMove', 'prompt', 'shopNpc'],
-  allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase', 'cdSwipe', 'cdSlam', 'cdThrow', 'cdDash', 'cdSummon', 'cdGuard', 'cdRain', 'cdSpin'],
+  allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase', 'cdSwipe', 'cdSlam', 'cdThrow', 'cdDash', 'cdSummon', 'cdGuard', 'cdRain', 'cdSpin', 'tilt', 'backroomsT'],
   allenMeta: ['maxHp', 'poiseMax', 'phases', 'potTotal', 'shieldDur', 'enraged'],
   bot: ['id', 'kind', 'x', 'z', 'hp', 'maxHp', 'heading', 'stun', 'chomp', 'flash', 'ph', 'mode', 'mt', 'lx', 'lz', 'hop', 'moving', 'swing', 'behavior'],
   proj: ['id', 'kind', 'x', 'y', 'z', 'vx', 'vz', 'friendly'],
@@ -36,11 +36,12 @@ export const KEYS = {
   memorial: ['id', 'x', 'z', 'life'],
   wild: ['id', 'name', 'look', 'x', 'z', 'heading', 'ph', 'moving', 'spotted'],
   ally: ['id', 'name', 'tint', 'x', 'z', 'heading', 'hp', 'maxHp', 'atk', 'inv', 'ph', 'dying', 'moving'],
+  decoy: ['id', 'x', 'z', 'life', 'maxLife', 'burst'],
 } as const;
 export type EntityKind = keyof typeof KEYS;
 
 /** Entity lists in a hot snapshot, in this order. */
-export const LISTS = ['bot', 'proj', 'puddle', 'shock', 'pickup', 'kernel', 'pot', 'hazard', 'memorial', 'wild', 'ally'] as const;
+export const LISTS = ['bot', 'proj', 'puddle', 'shock', 'pickup', 'kernel', 'pot', 'hazard', 'memorial', 'wild', 'ally', 'decoy'] as const;
 export type ListKind = (typeof LISTS)[number];
 
 export type Wire = number | string | boolean | null;

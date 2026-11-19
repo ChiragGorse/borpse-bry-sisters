@@ -1,4 +1,4 @@
-import { UPGRADES, costOf, maxLevel, type HudState, type NpcId, type UpgradeId } from '../game/data';
+import { ACTIVE_IDS, UPGRADES, costOf, maxLevel, type ActiveId, type HudState, type NpcId, type UpgradeId } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
 import { Key, Portrait, TruffleIcon } from './Hud';
 
@@ -58,14 +58,42 @@ const SHOP_META: Record<
     footNote: 'Test new moves & combos on the orange-shirt dummy beside the lake!',
     backLabel: 'Back to the dock',
   },
+  kioff: {
+    alt: 'Kioff',
+    title: "KIOFF'S RENDER FARM",
+    subtitle: '// portals, decoys, corn',
+    quote: '“Gen Ed, sure. But who do you think rendered the Backrooms? Pick something and don’t touch the chickens.”',
+    aside: 'blueprint',
+    portraitBg: 'bg-[#cbb8f0]',
+    titleCls: 'text-[#5a3f86]',
+    headerHint: 'Press a number or click to buy',
+    footNote: 'New abilities go into a free loadout slot. Swap them from the pause menu.',
+    backLabel: 'Back to the coop',
+  },
+  charig: {
+    alt: 'Charig',
+    title: "CHARIG'S STASH",
+    subtitle: 'Heals, speedruns & one cursed phone',
+    quote: '“I knew Allen before he was… like this. Trust me: nothing tilts him like losing at Smash Battles.”',
+    aside: 'gingham',
+    portraitBg: 'bg-[#bfe6cf]',
+    titleCls: 'text-[#1f6b47]',
+    headerHint: 'Press a number or click to buy',
+    footNote: 'New abilities go into a free loadout slot. Swap them from the pause menu.',
+    backLabel: 'Back to the porch',
+  },
 };
+
+/** Where an active ability lives in your loadout: its slot key, or a nudge to equip it. */
+function slotLabel(hud: HudState, id: UpgradeId): string | undefined {
+  if (!(ACTIVE_IDS as readonly string[]).includes(id) || hud.levels[id] <= 0) return undefined;
+  const slot = hud.actives.find((a) => a.id === (id as ActiveId));
+  return slot ? `Slot ${slot.key}` : 'Not equipped: pause menu';
+}
 
 function techniqueInput(id: UpgradeId, layout: PadLayout) {
   const label = (action: Parameters<typeof padActionLabel>[1]) => padActionLabel(layout, action);
   switch (id) {
-    case 'zap': return label('zap');
-    case 'squeal': return label('squeal');
-    case 'tailwhip': return label('whip');
     case 'uppercut': return `${label('roll')}, then ${label('headbutt')}`;
     case 'bellyflop': return `${label('jump')}, then ${label('headbutt')}`;
     case 'cyclone': return `${label('headbutt')} x4`;
@@ -127,7 +155,7 @@ export function Shop({ hud, portraits, onBuy, onClose }: ShopProps) {
               const farmFull = u.id === 'repair' && hud.farm >= 99.5 && hud.allies === 0;
               const afford = hud.truffles >= cost;
               const disabled = maxed || !afford || farmFull;
-              const input = pad ? techniqueInput(u.id, pad) ?? u.input : u.input;
+              const input = slotLabel(hud, u.id) ?? (pad ? techniqueInput(u.id, pad) ?? u.input : u.input);
               const desc = maxed
                 ? dojo
                   ? 'Technique mastered!'

@@ -35,8 +35,11 @@ export class Sfx {
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   muted = false;
+  /** Called on every unlock (each click or key press), e.g. to start the music. */
+  onUnlock: (() => void) | null = null;
 
   unlock() {
+    this.onUnlock?.();
     if (!this.ctx) {
       try {
         const AC =

@@ -19,6 +19,10 @@ export const SPOT = {
   turret: { x: 4, z: 16 },
   start: { x: 0, z: 6 },
   hunt: { x: 48, z: 41, r: 5 },
+  /** Kioff hangs around the chicken coop door. */
+  kioff: { x: 40.2, z: -27.5 },
+  /** Charig waits by the farmhouse porch. */
+  charig: { x: 21, z: -27 },
 };
 
 /** Kingger's Tesla coil on the lab roof. */

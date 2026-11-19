@@ -26,6 +26,8 @@ function list(sim: Sim, kind: ListKind): object[] {
       return sim.wild;
     case 'ally':
       return sim.allies;
+    case 'decoy':
+      return sim.decoys;
   }
 }
 

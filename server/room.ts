@@ -5,7 +5,7 @@
 import { Sim, MAX_PLAYERS } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { UPGRADES } from '../src/game/data';
-import { ALLEN_ID, POSE_KEYS, type Pose, type PlayerInput, type SimEvent, type Strike, type StrikeFn } from '../src/game/sim/types';
+import { ALLEN_ID, BTN_ALL, POSE_KEYS, type Pose, type PlayerInput, type SimEvent, type Strike, type StrikeFn } from '../src/game/sim/types';
 import { encodeHot, encodeMeta, encodeStats } from '../src/game/net/encode';
 import { MAX_NAME, PROTOCOL_VERSION, TICK_HZ, unpack, type ClientMsg, type LobbyPlayer, type Relayed, type ServerMsg } from '../src/game/net/protocol';
 import { headlessMaps } from './maps';
@@ -14,7 +14,7 @@ import type { WsConnection } from './ws';
 const DT = 1 / TICK_HZ;
 /** Most messages one client may send per second before it's cut off (poses arrive at up to ~60/s). */
 const MAX_MSGS_PER_SEC = 150;
-const STRIKES: StrikeFn[] = ['attack', 'upStart', 'flopStart', 'whipStart', 'charge', 'chargeHit', 'headbutt', 'cyclone', 'uppercut', 'whip', 'flop', 'zap', 'squeal'];
+const STRIKES: StrikeFn[] = ['attack', 'upStart', 'flopStart', 'whipStart', 'charge', 'chargeHit', 'headbutt', 'cyclone', 'uppercut', 'whip', 'flop', 'zap', 'squeal', 'portal', 'decoy', 'potion', 'smash'];
 /** Effect kinds a browser may relay to the others. */
 const RELAYABLE = new Set<SimEvent['t']>(['vfx', 'sfx', 'text', 'troutLeap', 'dummyHit']);
 
@@ -165,7 +165,7 @@ export class Room {
           strikes.push({ fn: k[0] as StrikeFn, arg: Number(k[1]) || 0, pose: unpack<Pose>(k[2], POSE_KEYS) });
         }
         this.sim.remoteUpdate(m.pid, Number(msg.ep) || 0, pose, strikes);
-        m.buttons |= (Number(msg.b) | 0) & 0x1ff;
+        m.buttons |= (Number(msg.b) | 0) & BTN_ALL;
         if (Array.isArray(msg.ev) && msg.ev.length) {
           const ev = msg.ev.filter((e) => e && RELAYABLE.has(e.t)).slice(0, 80);
           if (ev.length) this.relay.push({ by: m.pid, ev });
@@ -178,7 +178,7 @@ export class Room {
         const mz = Number(msg.mz) || 0;
         const l = Math.hypot(mx, mz);
         this.allenInput = l > 1 ? { mx: mx / l, mz: mz / l } : { mx, mz };
-        this.allenButtons |= (Number(msg.b) | 0) & 0x1ff;
+        this.allenButtons |= (Number(msg.b) | 0) & BTN_ALL;
         this.allenLast = now;
         break;
       }

@@ -202,12 +202,14 @@ function ActionCluster({ game, hud, canListen }: { game: () => Game | null; hud:
 
   // Unlockables fill the outer ring in order, so a new ability pops into the next free slot.
   const extras: { code: string; label: string; cd: number; className: string; icon: ReactNode }[] = [];
-  if (hud.zapUnlocked) extras.push({ code: 'KeyQ', label: 'Zap', cd: hud.zapCd, className: 'bg-lab/75', icon: '⚡' });
-  if (hud.whipUnlocked) extras.push({ code: 'KeyC', label: 'Whip', cd: hud.whipCd, className: 'bg-[#7fc8cf]/75', icon: '〰' });
-  if (hud.squealUnlocked) extras.push({ code: 'KeyF', label: 'Squeal', cd: hud.squealCd, className: 'bg-[#ffb3c7]/75', icon: '📢' });
+  const tint: Record<string, string> = { zap: 'bg-lab/75', tailwhip: 'bg-[#7fc8cf]/75', squeal: 'bg-[#ffb3c7]/75', portal: 'bg-[#e8d97a]/75', decoy: 'bg-[#9ff6ff]/75', potion: 'bg-[#a6f0b0]/75', smash: 'bg-[#cbb8f0]/75' };
+  // one button per filled loadout slot
+  for (const a of hud.actives) if (a.id) extras.push({ code: a.code, label: a.name, cd: a.cd, className: tint[a.id] ?? 'bg-paper/75', icon: a.icon });
   if (canListen)
     extras.push({ code: 'KeyR', label: 'Listen', cd: hud.hunt?.listenCd ?? 0, className: 'bg-[#a9d18e]/75', icon: '👂' });
+  // a full loadout overflows the first ring into a second, wider one
   const outer = [8, 38, 68, 98];
+  const outer2 = [14, 40, 66, 92];
 
   return (
     <>
@@ -258,7 +260,7 @@ function ActionCluster({ game, hud, canListen }: { game: () => Game | null; hud:
           key={x.code}
           label={x.label}
           size={EXTRA_SIZE}
-          style={arc(outer[i], EXTRA_R, EXTRA_SIZE)}
+          style={i < outer.length ? arc(outer[i], EXTRA_R, EXTRA_SIZE) : arc(outer2[i - outer.length] ?? 92, EXTRA_R + EXTRA_SIZE + 8, EXTRA_SIZE)}
           className={`${x.className} pop-in`}
           cd={x.cd}
           onPress={press(x.code)}

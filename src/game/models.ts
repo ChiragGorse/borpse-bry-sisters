@@ -424,6 +424,69 @@ export function makeKingger(): NpcModel {
 
 /* ───────────────────────── Trout the trout (combat sensei) ───────────────────────── */
 
+/** Shared build for the two school-kid NPCs: legs, torso, arms and a head group to dress. */
+function kid(shirt: number, pants: number, skinCol: number, shoes: number) {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const skin = M(skinCol);
+  const top = M(shirt);
+  for (const s of [-1, 1]) {
+    part(body, box(0.3, 0.9, 0.32), M(pants), 0.2 * s, 0.6, 0);
+    part(body, box(0.34, 0.2, 0.5), M(shoes), 0.2 * s, 0.1, 0.07);
+  }
+  part(body, box(0.9, 0.95, 0.56), top, 0, 1.5, 0);
+  const mkArm = (s: number) => {
+    const g = new THREE.Group();
+    g.position.set(0.58 * s, 1.9, 0);
+    g.rotation.z = 0.08 * s;
+    body.add(g);
+    part(g, box(0.24, 0.82, 0.24), top, 0, -0.4, 0);
+    part(g, sph(0.14, 6, 5), skin, 0, -0.9, 0);
+    return g;
+  };
+  const armL = mkArm(1);
+  const armR = mkArm(-1);
+  const head = new THREE.Group();
+  head.position.set(0, 2.38, 0);
+  body.add(head);
+  part(head, sph(0.4, 10, 8), skin);
+  part(head, sph(0.075, 6, 5), M(0x6b3f2a), 0, -0.02, 0.4, { shadow: false });
+  for (const s of [-1, 1]) part(head, sph(0.05, 6, 4), M(0x15100e), 0.14 * s, 0.04, 0.37, { shadow: false });
+  part(head, box(0.18, 0.035, 0.04), M(0x7a2e2e), 0, -0.17, 0.37, { shadow: false });
+  return { root, body, head, armL, armR, skin };
+}
+
+/** Charig: brown skin, black hair down to his eyes, and the cursed phone from Smash Battles. */
+export function makeCharig(): NpcModel {
+  const { root, body, head, armL, armR } = kid(0x2f6d4e, 0x2b3550, 0x8a5634, 0x1d1d22);
+  const hair = M(0x141012);
+  // a mop of black hair over the crown, with bangs hanging down to eye level
+  part(head, sph(0.43, 10, 8), hair, 0, 0.1, -0.03, { sy: 0.85 });
+  part(head, box(0.78, 0.2, 0.18), hair, 0, 0.16, 0.3, { rx: 0.15 });
+  for (const s of [-1, 1]) part(head, box(0.12, 0.42, 0.5), hair, 0.38 * s, 0.02, -0.02);
+  for (const x of [-0.24, -0.08, 0.08, 0.24]) part(head, box(0.14, 0.16, 0.06), hair, x, 0.08, 0.38, { rz: x * 0.6, shadow: false });
+  // phone in his right hand, screen glowing
+  part(armR, box(0.2, 0.34, 0.04), M(0x1b1b1f), 0, -1.02, 0.14, { shadow: false });
+  part(armR, box(0.16, 0.28, 0.01), glow(0x8fd1ff, 0.9), 0, -1.02, 0.165, { shadow: false });
+  return { root, body, head, armR, armL, spin: null };
+}
+
+/** Kioff: Gen Ed graphics wizard. (A stand-in look: hoodie, headphones and a drawing tablet.) */
+export function makeKioff(): NpcModel {
+  const { root, body, head, armL, armR } = kid(0x6a4c9c, 0x3a3a44, 0xe0b48e, 0xeeeeee);
+  part(head, sph(0.42, 10, 8), M(0x6b4a2e), 0, 0.12, -0.05, { sy: 0.7 });
+  // hood down around the neck, headphones on
+  part(body, cyl(0.42, 0.5, 0.22, 12), M(0x5a3f86), 0, 2.02, -0.04);
+  const band = M(0x23232a);
+  part(head, torus(0.44, 0.04, 6, 16, Math.PI), band, 0, 0.05, 0, { rz: 0 });
+  for (const s of [-1, 1]) part(head, cyl(0.14, 0.14, 0.12, 10), M(0x2bd4c0), 0.43 * s, -0.02, 0, { rz: Math.PI / 2 });
+  // drawing tablet tucked under his left arm
+  part(armL, box(0.08, 0.55, 0.42), M(0x22242a), 0.12, -0.5, 0.05);
+  part(armL, box(0.01, 0.44, 0.34), glow(0xffd36b, 0.7), 0.165, -0.5, 0.05, { shadow: false });
+  return { root, body, head, armR, armL, spin: null };
+}
+
 export interface TroutModel {
   root: THREE.Group;
   swim: THREE.Group;

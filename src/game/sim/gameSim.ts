@@ -6,7 +6,7 @@
 import type { GameOverReason, HogName, UpgradeId } from '../data';
 import type { Collider } from '../layout';
 import type { AllenState } from './Sim';
-import type { Ally, Area, Bot, Hazard, Kernel, Memorial, Pickup, Player, PlayerInput, Pot, Proj, Puddle, Shock, SimEvent, Wild } from './types';
+import type { Ally, Area, Bot, Decoy, Hazard, Kernel, Memorial, Pickup, Player, PlayerInput, Pot, Proj, Puddle, Shock, SimEvent, Wild } from './types';
 
 export interface EdibleState {
   id: string;
@@ -31,6 +31,7 @@ export interface GameSim {
   hazards: Hazard[];
   wild: Wild[];
   allies: Ally[];
+  decoys: Decoy[];
   edibles: EdibleState[];
 
   time: number;

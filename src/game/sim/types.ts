@@ -32,7 +32,9 @@ export type AState =
   | 'guard'
   | 'rainCast'
   | 'spinWind'
-  | 'spin';
+  | 'spin'
+  /** Sent to the Backrooms by Kioff's portal: gone from the farm for a few seconds. */
+  | 'backrooms';
 
 export type Area = 'farm' | 'forest';
 
@@ -47,7 +49,13 @@ export const BTN = {
   whip: 64,
   interact: 128,
   listen: 256,
+  portal: 512,
+  decoy: 1024,
+  potion: 2048,
+  smash: 4096,
 } as const;
+/** Every button bit, for validating what a browser sends. */
+export const BTN_ALL = 0x1fff;
 
 /** One player's controls for one simulation step. Movement is a world-space direction with length ≤ 1. */
 export interface PlayerInput {
@@ -115,6 +123,15 @@ export interface Player {
   prompt: string | null;
   /** Shop this player has open, if any. */
   shopNpc: NpcId | null;
+  /** Kioff's and Charig's active abilities. */
+  portalCd: number;
+  decoyCd: number;
+  potionCd: number;
+  smashCd: number;
+  /** Seconds since this pig last took a hit (out-of-combat regen). */
+  calmT: number;
+  /** Keyframe Rewinds used this course. */
+  rewinds: number;
   /**
    * Bumped whenever the simulation moves this pig by force (respawn, travel, knock-out, revival).
    * Online, a browser drives its own pig and ignores-then-adopts state with a newer epoch.
@@ -127,7 +144,7 @@ export const POSE_KEYS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'stam', 'stamDelay', 'action', 't', 'combo', 'comboTimer', 'buffered',
   'hitDone', 'hitDone2', 'invuln', 'blink', 'chargeCd', 'zapCd', 'zapAura', 'squealCd', 'whipCd', 'focus', 'dodged',
   'rollChain', 'chainHits', 'rushWindow', 'riverRush', 'flowCount', 'flowTimer', 'flowMove', 'muddy', 'rdx', 'rdz',
-  'grounded', 'dummyChargeHit',
+  'grounded', 'dummyChargeHit', 'portalCd', 'decoyCd', 'potionCd', 'smashCd',
 ] as const;
 export type Pose = Partial<Pick<Player, (typeof POSE_KEYS)[number]>>;
 
@@ -135,7 +152,24 @@ export type Pose = Partial<Pick<Player, (typeof POSE_KEYS)[number]>>;
  * A move a browser-driven pig made: the server replays it, at the pose it happened, against the shared world.
  * `fn` names the move; `arg` distinguishes variants (the cyclone's first or second hit).
  */
-export type StrikeFn = 'attack' | 'upStart' | 'flopStart' | 'whipStart' | 'charge' | 'chargeHit' | 'headbutt' | 'cyclone' | 'uppercut' | 'whip' | 'flop' | 'zap' | 'squeal';
+export type StrikeFn =
+  | 'attack'
+  | 'upStart'
+  | 'flopStart'
+  | 'whipStart'
+  | 'charge'
+  | 'chargeHit'
+  | 'headbutt'
+  | 'cyclone'
+  | 'uppercut'
+  | 'whip'
+  | 'flop'
+  | 'zap'
+  | 'squeal'
+  | 'portal'
+  | 'decoy'
+  | 'potion'
+  | 'smash';
 export interface Strike {
   fn: StrikeFn;
   arg: number;
@@ -184,6 +218,16 @@ export interface Puddle {
   maxLife: number;
   tick: number;
   dmg: number;
+}
+/** Kioff's wireframe pig: kitchen bots and Allen chase it until it expires. */
+export interface Decoy {
+  id: number;
+  x: number;
+  z: number;
+  life: number;
+  maxLife: number;
+  /** Bursts into damaging pixels when it expires (level 2). */
+  burst: boolean;
 }
 export interface Memorial {
   id: number;

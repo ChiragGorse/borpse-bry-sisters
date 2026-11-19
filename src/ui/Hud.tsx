@@ -56,9 +56,12 @@ function Ability({
   locked = false,
   hint,
   glow = false,
+  icon,
 }: {
   k: string;
   name: string;
+  /** Shown instead of the name (the six ability slots are narrow). */
+  icon?: string;
   cd?: number;
   locked?: boolean;
   hint?: string;
@@ -67,6 +70,7 @@ function Ability({
   const ready = !locked && cd <= 0;
   return (
     <div
+      title={icon ? name : undefined}
       className={`relative flex h-[46px] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg border-[2.5px] px-0.5 ${
         locked
           ? 'border-dashed border-ink/35 text-ink/45'
@@ -79,7 +83,13 @@ function Ability({
     >
       {cd > 0 && !glow && <div className="absolute inset-x-0 bottom-0 bg-ink/40" style={{ height: `${Math.min(1, cd) * 100}%` }} />}
       <span className="relative font-mono text-[9.5px] font-medium leading-none">{locked ? (hint ?? 'locked') : k}</span>
-      <span className="relative mt-1 text-[9.5px] font-extrabold uppercase leading-none">{name}</span>
+      {icon ? (
+        <span className="relative mt-1 text-[15px] leading-none" aria-label={name}>
+          {icon}
+        </span>
+      ) : (
+        <span className="relative mt-1 text-[9.5px] font-extrabold uppercase leading-none">{name}</span>
+      )}
     </div>
   );
 }
@@ -193,10 +203,13 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             <Ability k={pad ? padActionLabel(pad, 'headbutt') : 'LMB'} name={hud.cycloneUnlocked ? 'Butt×4' : 'Butt'} />
             <Ability k={pad ? padActionLabel(pad, 'charge') : 'RMB'} name={hud.rushReady ? 'RUSH!' : 'Charge'} cd={hud.chargeCd} glow={hud.rushReady} />
             <Ability k={pad ? padActionLabel(pad, 'roll') : 'SHIFT'} name="Roll" cd={hud.stam < 25 ? 1 : 0} />
-            {hud.zapUnlocked && <Ability k={pad ? padActionLabel(pad, 'zap') : 'Q'} name="Zap" cd={hud.zapCd} />}
-            {hud.whipUnlocked && <Ability k={pad ? padActionLabel(pad, 'whip') : 'C'} name="Whip" cd={hud.whipCd} />}
-            {(hud.squealUnlocked || (!hud.zapUnlocked && !hud.whipUnlocked)) && (
-              <Ability k={pad ? padActionLabel(pad, 'squeal') : 'F'} name="Squeal" cd={hud.squealCd} locked={!hud.squealUnlocked} hint="Kingger" />
+          </div>
+          {/* your loadout: the abilities in your six slots */}
+          <div className={`mt-1 gap-1 ${touch ? 'hidden' : 'flex'}`}>
+            {hud.actives.some((a) => a.id) ? (
+              hud.actives.filter((a) => a.id).map((a) => <Ability key={a.slot} k={a.key} name={a.name} icon={a.icon} cd={a.cd} />)
+            ) : (
+              <Ability k={hud.actives[0]?.key ?? 'Q'} name="Abilities" locked hint="Shops" />
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">

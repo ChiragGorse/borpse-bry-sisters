@@ -150,6 +150,7 @@ export default function App() {
           onMute={() => game.current?.toggleMute()}
           onRestart={onlinePlay ? leaveOnline : start}
           restartLabel={onlinePlay ? 'Leave room' : undefined}
+          loadout={hud.allen ? undefined : { actives: hud.actives, owned: hud.owned, onAssign: (slot, id) => game.current?.setLoadoutSlot(slot, id) }}
           note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : undefined}
           onReturnFarm={hud.area === 'forest' ? () => game.current?.returnToFarm() : undefined}
         />

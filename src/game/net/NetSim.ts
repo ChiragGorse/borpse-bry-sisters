@@ -15,7 +15,7 @@ import { emptyLevels } from '../data';
 import type { Collider } from '../layout';
 import { Sim, newAllen, newPlayer, poseOf, type AllenState } from '../sim/Sim';
 import type { EdibleState, GameSim } from '../sim/gameSim';
-import { ALLEN_ID, NO_INPUT, POSE_KEYS, type Ally, type Area, type Bot, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Strike, type Wild } from '../sim/types';
+import { ALLEN_ID, NO_INPUT, POSE_KEYS, type Ally, type Area, type Bot, type Decoy, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Strike, type Wild } from '../sim/types';
 import { INTERP_DELAY, KEYS, LISTS, TICK_HZ, pack, unpack, type ClientMsg, type Hot, type Meta, type ServerMsg, type Stats, type WireStrike } from './protocol';
 
 const TAU = Math.PI * 2;
@@ -52,6 +52,7 @@ export class NetSim implements GameSim {
   hazards: Hazard[] = [];
   wild: Wild[] = [];
   allies: Ally[] = [];
+  decoys: Decoy[] = [];
   edibles: EdibleState[];
 
   time = 0;
@@ -200,6 +201,7 @@ export class NetSim implements GameSim {
     sh.pots = copy<Pot>(f.lists.pot);
     sh.wild = copy<Wild>(f.lists.wild);
     sh.allies = copy<Ally>(f.lists.ally);
+    sh.decoys = copy<Decoy>(f.lists.decoy);
     sh.shocks = [];
     sh.pickups = [];
     Object.assign(sh.A, this.allenMeta, f.allen);
@@ -356,6 +358,7 @@ export class NetSim implements GameSim {
     this.memorials = lists.memorial as unknown as Memorial[];
     this.wild = lists.wild as unknown as Wild[];
     this.allies = lists.ally as unknown as Ally[];
+    this.decoys = lists.decoy as unknown as Decoy[];
     const A = Object.assign(this.A, this.allenMeta, b.allen);
     if (t < 1 && a.allen.active && b.allen.active) {
       A.x = a.allen.x! + (b.allen.x! - a.allen.x!) * t;

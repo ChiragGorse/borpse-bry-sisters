@@ -21,6 +21,10 @@ export const PAD_ACTIONS = {
   whip: { button: 'leftBumper', key: 'KeyC' },
   squeal: { button: 'leftTrigger', key: 'KeyF' },
   listen: { button: 'up', key: 'KeyR' },
+  // loadout slots 4-6 (slots 1-3 are zap, squeal and whip's buttons)
+  slot4: { button: 'left', key: 'KeyV' },
+  slot5: { button: 'right', key: 'KeyX' },
+  slot6: { button: 'down', key: 'KeyG' },
 } as const;
 
 const labels: Record<PadLayout, Record<PadButton, string>> = {
