@@ -50,6 +50,7 @@ import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
 import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
+import { SCARE_FACE_SVG } from '../ui/scareFace';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
 import { COIL, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
@@ -257,6 +258,7 @@ export class Game {
   private players = new Map<number, PlayerView>();
   private openingPigs: KenjiModel[] = [];
   private camLook = new THREE.Vector3();
+  private skyArea: Area = 'farm';
   /** Hog Hunt lighting: Herb's lantern and a faint glow round your own pig (off on the farm). */
   private herbLight = new THREE.PointLight(0xffb04a, 0, 22, 1.6);
   private pigLight = new THREE.PointLight(0xc8d4ff, 0, 11, 1.6);
@@ -1668,12 +1670,24 @@ export class Game {
 
   /** Path Guppy just leapt out at you: a white-red flash, a jolt, and a hard shake. */
   private jumpScare() {
-    this.shake = Math.max(this.shake, 1.1);
-    const el = document.createElement('div');
-    el.className = 'scare-flash';
-    this.fx.appendChild(el);
-    window.setTimeout(() => el.remove(), 900);
-    navigator.vibrate?.([60, 40, 120]);
+    this.shake = Math.max(this.shake, 1.4);
+    this.sfx.play('scream');
+    // his face, right in yours
+    const face = document.createElement('div');
+    face.className = 'scare-face';
+    // landscape: fill the screen; portrait: show the whole face, black above and below
+    face.innerHTML = window.innerHeight > window.innerWidth ? SCARE_FACE_SVG.replace('xMidYMid slice', 'xMidYMid meet') : SCARE_FACE_SVG;
+    // over everything, HUD included
+    document.body.appendChild(face);
+    window.setTimeout(() => {
+      face.remove();
+      // then a red after-flash as he drops back into the dark
+      const el = document.createElement('div');
+      el.className = 'scare-flash';
+      this.fx.appendChild(el);
+      window.setTimeout(() => el.remove(), 900);
+    }, 1050);
+    navigator.vibrate?.([120, 40, 200, 40, 120]);
   }
 
   /** The Hog Hunt after dark: lantern light that follows Herb and your pig, and eyes watching from the trees. */
@@ -1720,7 +1734,10 @@ export class Game {
   private updateSky(dt: number) {
     const sim = this.sim;
     const t = sim.area === 'forest' ? FOREST_TOD : TODS[Math.min(sim.tod, TODS.length - 1)];
-    const s = 1 - Math.exp(-0.9 * dt);
+    // travelling between the farm and the forest cuts straight to the new light; time of day eases in
+    const cut = sim.area !== this.skyArea;
+    this.skyArea = sim.area;
+    const s = cut ? 1 : 1 - Math.exp(-0.9 * dt);
     const L = this.lit;
     for (const key of LIT_KEYS) L[key] = lerp(L[key], t[key], s);
     this.sun.color.lerp(this.tmpC.setHex(t.sun), s);

@@ -27,7 +27,9 @@ export type SfxName =
   | 'sizzle'
   | 'hogdie'
   | 'win'
-  | 'lose';
+  | 'lose'
+  /** Path Guppy's jump scare. */
+  | 'scream';
 
 /** Tiny WebAudio synth so the game has sound without shipping any audio files. */
 export class Sfx {
@@ -109,6 +111,53 @@ export class Sfx {
     src.stop(t + dur + 0.03);
   }
 
+  /** A distorted, dissonant shriek with a sub-bass hit under it (Path Guppy's jump scare). */
+  private scream() {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || this.muted) return;
+    const t = ctx.currentTime;
+    const shaper = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i / (curve.length - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * 6);
+    }
+    shaper.curve = curve;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.55, t + 0.02);
+    out.gain.setValueAtTime(0.55, t + 0.55);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    shaper.connect(out);
+    out.connect(master);
+    // a cluster of clashing voices, each warbling and sliding up then down
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.frequency.value = 23;
+    lfoGain.gain.value = 60;
+    lfo.connect(lfoGain);
+    for (const [f, type] of [[620, 'sawtooth'], [655, 'sawtooth'], [930, 'square'], [1390, 'sawtooth']] as [number, OscillatorType][]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(f * 0.7, t);
+      o.frequency.exponentialRampToValueAtTime(f * 1.35, t + 0.18);
+      o.frequency.exponentialRampToValueAtTime(f * 0.8, t + 1.1);
+      lfoGain.connect(o.frequency);
+      const g = ctx.createGain();
+      g.gain.value = 0.18;
+      o.connect(g);
+      g.connect(shaper);
+      o.start(t);
+      o.stop(t + 1.15);
+    }
+    lfo.start(t);
+    lfo.stop(t + 1.15);
+    this.noise(0.9, 0.45, 2600, 'bandpass');
+    this.tone(70, 32, 0.7, 'sine', 0.6);
+    this.noise(0.25, 0.5, 180, 'lowpass');
+  }
+
   play(name: SfxName) {
     switch (name) {
       case 'swing':
@@ -160,6 +209,9 @@ export class Sfx {
       case 'slam':
         this.noise(0.5, 0.9, 260);
         this.tone(90, 28, 0.5, 'sine', 0.6);
+        break;
+      case 'scream':
+        this.scream();
         break;
       case 'roar':
         this.tone(110, 62, 0.6, 'sawtooth', 0.3);
