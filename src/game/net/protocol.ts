@@ -1,26 +1,27 @@
 /**
  * Wire protocol between the game server (server/) and browsers. Shared by both sides.
  *
- * The server runs the authoritative `Sim` at TICK_HZ and broadcasts a state message every tick:
- * "hot" entity data (positions, timers) as compact value arrays, plus "meta" (shop levels, banners,
- * squad, map…) only when it changed, plus the simulation's one-shot events. Clients send their
- * controls; buttons are edge-triggered and OR-ed together until the server's next tick.
+ * The server runs the shared world (Allen, bots, hogs, crops, health) at TICK_HZ and broadcasts a state
+ * message every tick: "hot" entity data as compact value arrays, "meta" (upgrades, banners, squad, map…)
+ * only when it changed, the simulation's one-shot events, and effects relayed from other browsers.
+ *
+ * Each browser drives its own pig: it runs that pig's movement and moves locally and sends a `pose`
+ * message with the pig's state, the moves it made (replayed by the server against the shared world),
+ * the buttons pressed (for talking to NPCs), and the effects it showed (relayed to everyone else).
  */
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
-/** The server stops applying a client's movement if it hears nothing for this long (tab hidden, paused). */
-export const INPUT_TIMEOUT = 0.3;
 export const MAX_NAME = 16;
 
 /* ───────── which fields of each entity go over the wire ───────── */
 
 export const KEYS = {
-  player: ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick'],
+  player: ['id', 'epoch', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick'],
   playerMeta: ['id', 'name', 'tint', 'maxHp', 'maxStam', 'flowMove', 'prompt', 'shopNpc'],
   allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase'],
   allenMeta: ['maxHp', 'poiseMax', 'phases', 'potTotal', 'shieldDur', 'enraged'],
@@ -42,7 +43,7 @@ export type EntityKind = keyof typeof KEYS;
 export const LISTS = ['bot', 'proj', 'puddle', 'shock', 'pickup', 'kernel', 'pot', 'hazard', 'memorial', 'wild', 'ally'] as const;
 export type ListKind = (typeof LISTS)[number];
 
-type Wire = number | string | boolean | null;
+export type Wire = number | string | boolean | null;
 
 /** Rounds numbers to centimetres / hundredths: plenty for rendering and roughly halves the payload. */
 export function wire(v: unknown): Wire {
@@ -116,11 +117,21 @@ export type ServerMsg =
   | { t: 'welcome'; v: number; pid: number; room: string }
   | { t: 'lobby'; room: string; host: number; playing: boolean; bots: number; players: LobbyPlayer[] }
   /** One simulation tick: server tick time, hot state, meta when changed, stats about once a second, events. */
-  | { t: 's'; st: number; hot: Hot; meta?: Meta; stats?: Stats; ev: SimEvent[] }
+  | { t: 's'; st: number; hot: Hot; meta?: Meta; stats?: Stats; ev: SimEvent[]; rev?: Relayed[] }
   | { t: 'error'; msg: string };
 
+/** Effects one browser showed for its own pig, passed on to the others. */
+export interface Relayed {
+  by: number;
+  ev: SimEvent[];
+}
+
+/** A move on the wire: [fn, arg, pose values in POSE_KEYS order]. */
+export type WireStrike = [string, number, Wire[]];
+
 export type ClientMsg =
-  | { t: 'in'; mx: number; mz: number; b: number }
+  /** Your pig: epoch it's based on, its pose (POSE_KEYS order), buttons pressed, moves made, effects shown. */
+  | { t: 'pose'; ep: number; p: Wire[]; b: number; k: WireStrike[]; ev: SimEvent[] }
   | { t: 'start' }
   | { t: 'retry' }
   | { t: 'restart' }

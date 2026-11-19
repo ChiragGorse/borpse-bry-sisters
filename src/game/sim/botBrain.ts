@@ -82,7 +82,7 @@ export class BotBrain {
 
     // jump hostile shockwaves rolling toward us
     for (const s of sim.shocks) {
-      if (s.hostile && !s.hitPlayers.has(p.id) && Math.abs(Math.hypot(p.x - s.x, p.z - s.z) - s.r) < 2.2) out.buttons |= BTN.jump;
+      if (s.hostile && !s.hitPlayers?.has(p.id) && Math.abs(Math.hypot(p.x - s.x, p.z - s.z) - s.r) < 2.2) out.buttons |= BTN.jump;
     }
     // step out of falling dumplings and chili puddles
     for (const h of sim.hazards) {

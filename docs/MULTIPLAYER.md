@@ -74,12 +74,21 @@ scripts/net-test.ts     starts the server and plays a room with three WebSocket 
   same message per tick: entity data as value arrays (key lists in `protocol.ts`, numbers rounded
   to hundredths), slow-changing state (upgrades, banners, squad, prompts) only when it changes,
   stats once a second, and that tick's events.
-- **Inputs.** Clients send movement plus the buttons pressed since their last message, at up to
-  30 Hz. The server ORs presses together until its next tick, clamps movement to a full stick,
-  stops a pig whose client goes quiet for 0.3 s, and cuts off clients that flood messages.
-- **Rendering.** Other entities are drawn 100 ms behind the newest snapshot and blended between
-  snapshots. Your own pig is drawn from the newest snapshot, pushed ahead by its velocity. Events
-  play when their moment comes up on screen.
+- **Your pig is yours.** Each browser runs its own pig's movement, physics, combos, aiming and
+  cooldowns locally (`Sim.predict` on a private copy of the simulation pointed at the newest world),
+  so controls respond instantly, hits and damage numbers included. It sends a `pose` message at
+  30 Hz, or right away when it acted, with the pig's state, the moves it made (each with the pose it
+  happened at) and the effects it showed. The server replays those moves against the shared world
+  (`Sim.replay`: Allen, bots, jars, hogs take the real damage) without re-aiming, slowing the world
+  down, or emitting effects, and relays the owner's effects to everyone else.
+- **What the server still owns.** Health, knock-outs, revivals and forced moves. When an enemy hits
+  a browser-driven pig, the server sends its owner a `knock` (it applies the knockback itself) and
+  ignores further hits for 0.9 s until the owner's invulnerability arrives. Respawns, travel and
+  knock-outs bump the pig's `epoch`; poses based on an older epoch are dropped, and the owner adopts
+  the server's pig. There's no cheat protection beyond keeping pigs on the map: browsers are trusted.
+- **Rendering.** The shared world is drawn 100 ms behind the newest snapshot and blended between
+  snapshots. Your pig is drawn exactly as your browser drives it. Server events and other players'
+  relayed effects play when their moment comes up on screen.
 - **Online rules.** No pausing (the pause menu just opens over the live game) and no opening
   story. Shops are per player while the herd keeps playing. After a wipe anyone can retry.
 
@@ -89,8 +98,7 @@ Tests: `npm run net:test` (server + three clients, ~40 s) and `npm run sim:soak`
 
 ## Next phases
 
-3. **Feel and co-op polish.** Client-side prediction for your own pig (it currently feels the
-   connection's round trip), reviving downed pigs, per-player shops/economy, per-player sounds.
+3. **Co-op polish.** Reviving downed pigs, per-player shops/economy, per-player sounds.
 4. **Player-controlled Allen.** Allen is a state machine with per-move cooldowns; a human Allen
    replaces the "pick the next move" step in `updateAllen` with button presses.
 5. **Polish.** Reconnecting to your pig after a dropped connection, a room browser, compressing

@@ -112,6 +112,31 @@ export interface Player {
   prompt: string | null;
   /** Shop this player has open, if any. */
   shopNpc: NpcId | null;
+  /**
+   * Bumped whenever the simulation moves this pig by force (respawn, travel, knock-out, revival).
+   * Online, a browser drives its own pig and ignores-then-adopts state with a newer epoch.
+   */
+  epoch: number;
+}
+
+/** The parts of a pig its owner's browser drives in online play (position, motion, actions, timers). */
+export const POSE_KEYS = [
+  'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'stam', 'stamDelay', 'action', 't', 'combo', 'comboTimer', 'buffered',
+  'hitDone', 'hitDone2', 'invuln', 'blink', 'chargeCd', 'zapCd', 'zapAura', 'squealCd', 'whipCd', 'focus', 'dodged',
+  'rollChain', 'chainHits', 'rushWindow', 'riverRush', 'flowCount', 'flowTimer', 'flowMove', 'muddy', 'rdx', 'rdz',
+  'grounded', 'dummyChargeHit',
+] as const;
+export type Pose = Partial<Pick<Player, (typeof POSE_KEYS)[number]>>;
+
+/**
+ * A move a browser-driven pig made: the server replays it, at the pose it happened, against the shared world.
+ * `fn` names the move; `arg` distinguishes variants (the cyclone's first or second hit).
+ */
+export type StrikeFn = 'attack' | 'upStart' | 'flopStart' | 'whipStart' | 'charge' | 'chargeHit' | 'headbutt' | 'cyclone' | 'uppercut' | 'whip' | 'flop' | 'zap' | 'squeal';
+export interface Strike {
+  fn: StrikeFn;
+  arg: number;
+  pose: Pose;
 }
 
 interface BotBody {
@@ -313,4 +338,6 @@ export type SimEvent =
   | { t: 'dummyHit'; dx: number; dz: number }
   | { t: 'area'; area: Area; changed: boolean }
   | { t: 'teleport'; heading: number }
-  | { t: 'lookAt'; x: number; z: number };
+  | { t: 'lookAt'; x: number; z: number }
+  /** Online: the server tells a pig's owner it was hit (or dodged), so the owner applies the knockback. */
+  | { t: 'knock'; only: number; fx: number; fz: number; knock: number; dodge: boolean };

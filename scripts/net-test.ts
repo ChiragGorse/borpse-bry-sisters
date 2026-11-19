@@ -36,6 +36,9 @@ class TestClient {
   bytes = 0;
   snaps = 0;
   events = 0;
+  /** Effects relayed from other browsers' pigs. */
+  relayed = 0;
+  knocks = 0;
   errors: string[] = [];
   brain: BotBrain;
   closed = false;
@@ -56,6 +59,8 @@ class TestClient {
       else if (msg.t === 's') {
         this.snaps++;
         this.events += msg.ev.length;
+        for (const r of msg.rev ?? []) if (r.by !== this.pid) this.relayed += r.ev.length;
+        this.knocks += msg.ev.filter((e) => e.t === 'knock' && e.only === this.pid).length;
         this.sim?.receive(msg);
       }
     };
@@ -107,6 +112,11 @@ async function main() {
   if (!cleo || /[<>]/.test(cleo.name)) fail(`names should be sanitised, got ${cleo?.name}`);
   ok(`5 pigs in the lobby (3 people, 2 bots); names sanitised ("${cleo!.name}")`);
 
+  // play with people only, so every hit on Allen comes from a browser-driven pig
+  a.send({ t: 'bots', n: 0 });
+  await until('bots to leave', () => [a, b, c].every((x) => x.lobby?.players.length === 3));
+  ok('host removed the bots again: 3 browser-driven pigs');
+
   b.send({ t: 'start' });
   await new Promise((r) => setTimeout(r, 300));
   if (a.lobby!.playing) fail('only the host may start the game');
@@ -150,19 +160,27 @@ async function main() {
     if (!left && now - t0 > SECONDS * 600) {
       left = true;
       c.ws.close();
-      await until('Cleo to leave', () => a.lobby?.players.length === 4);
-      ok('Cleo left mid-game; the room carried on with 4 pigs');
+      await until('Cleo to leave', () => a.lobby?.players.length === 2);
+      ok('Cleo left mid-game; the room carried on with 2 pigs');
     }
     if (a.sim!.outcome) break;
   }
   const secs = (Date.now() - measureFrom) / 1000;
   const sim = a.sim!;
   if (!moved) fail('nobody moved');
-  ok('pigs move');
+  ok('pigs move (positions come from their own browsers)');
+  if (b.relayed <= 0) fail("Bob never saw effects relayed from the other pigs' browsers");
+  ok(`Bob received ${b.relayed} effects relayed from other browsers`);
+  const epochs = a.sim!.players.map((p) => p.epoch);
+  if (epochs.some((e) => !(e > 0))) fail(`start should have moved every pig by force (epochs ${epochs})`);
+  ok(`server-forced moves adopted (epochs ${epochs.join(',')})`);
   if (!combatSeen) fail('the bell was never rung (no combat seen)');
   ok(`course started; Allen seen with ${sim.A.maxHp} HP`);
   if (sim.stats.dealt <= 0) fail('nobody landed a hit');
-  ok(`herd dealt ${sim.stats.dealt} damage, took ${sim.stats.taken}`);
+  ok(`browser-driven pigs dealt ${sim.stats.dealt} damage (moves replayed by the server), took ${sim.stats.taken}`);
+  const knocks = a.knocks + b.knocks + c.knocks;
+  if (sim.stats.taken > 0 && knocks <= 0) fail('pigs took damage but no knockback reached their browsers');
+  ok(`${knocks} hits sent back to their pigs' owners as knockback`);
   const rate = b.snaps / ((Date.now() - t0) / 1000);
   if (rate < 20) fail(`snapshot rate too low: ${rate.toFixed(1)}/s`);
   ok(`snapshots ~${rate.toFixed(0)}/s, ${b.events} events received by Bob`);

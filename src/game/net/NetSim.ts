@@ -1,18 +1,22 @@
 /**
  * Client side of online play: a stand-in for `Sim` that mirrors the server's simulation.
  *
- * It buffers the server's snapshots and renders everything INTERP_DELAY behind the newest one, blending
- * positions between the two snapshots around that moment so movement stays smooth at any frame rate.
- * The local pig is drawn from the newest snapshot (nudged ahead by its velocity) so your own controls
- * feel as direct as the connection allows. Commands are forwarded to the server.
+ * It buffers the server's snapshots and renders the shared world INTERP_DELAY behind the newest one,
+ * blending positions between snapshots so movement stays smooth at any frame rate.
+ *
+ * Your own pig is yours: a private copy of the simulation (`shadow`) runs its movement and moves every
+ * frame against the newest world the server sent, so controls respond instantly. Each frame the pig's
+ * state, the moves it made and the effects it showed go to the server, which replays the moves against
+ * the shared world and passes the effects on to everyone else. The server still owns health; it tells
+ * this pig when it got hit (`knock`) and moves it by force (respawn, travel) by bumping its epoch.
  */
 import type { GameOverReason, HogName, UpgradeId } from '../data';
 import { emptyLevels } from '../data';
 import type { Collider } from '../layout';
-import { newAllen, type AllenState } from '../sim/Sim';
+import { Sim, newAllen, newPlayer, poseOf, type AllenState } from '../sim/Sim';
 import type { EdibleState, GameSim } from '../sim/gameSim';
-import { NO_INPUT, type Ally, type Area, type Bot, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Wild } from '../sim/types';
-import { INTERP_DELAY, KEYS, LISTS, TICK_HZ, unpack, type ClientMsg, type Hot, type Meta, type ServerMsg, type Stats } from './protocol';
+import { NO_INPUT, POSE_KEYS, type Ally, type Area, type Bot, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Strike, type Wild } from '../sim/types';
+import { INTERP_DELAY, KEYS, LISTS, TICK_HZ, pack, unpack, type ClientMsg, type Hot, type Meta, type ServerMsg, type Stats, type WireStrike } from './protocol';
 
 const TAU = Math.PI * 2;
 const angLerp = (a: number, b: number, t: number) => {
@@ -90,7 +94,12 @@ export class NetSim implements GameSim {
   private allenMeta: Partial<AllenState> = {};
   private btn = 0;
   private sendT = 0;
-  private lastSent = '';
+  /** Private simulation that runs this browser's pig. */
+  private shadow: Sim;
+  /** This browser's pig, as it drives it. */
+  private pig: Player | null = null;
+  private strikes: Strike[] = [];
+  private relayOut: SimEvent[] = [];
   /** Set after closing a shop until the server confirms it, so the shop doesn't flash back open. */
   private closingShop = false;
 
@@ -99,6 +108,8 @@ export class NetSim implements GameSim {
     this.maps = maps;
     this.send = send;
     this.edibles = maps.farm.edibles.map((e) => ({ id: e.id, name: e.name, x: e.x, z: e.z, hp: e.maxHp, maxHp: e.maxHp }));
+    // the shadow adds its own NPC colliders, so give it its own list
+    this.shadow = new Sim({ ...maps, farm: { ...maps.farm, colliders: [...maps.farm.colliders] } });
   }
 
   /* ───────── incoming ───────── */
@@ -124,9 +135,70 @@ export class NetSim implements GameSim {
     }
     this.frames.push(frame);
     if (this.frames.length > 12) this.frames.shift();
-    if (msg.ev.length) this.pending.push({ st: msg.st, ev: msg.ev });
+    const ev: SimEvent[] = [];
+    for (const e of msg.ev) {
+      // knockback for our own pig applies right away; it's ours to move
+      if (e.t === 'knock') {
+        if (e.only === this.localId && this.pig) this.shadow.applyKnock(this.localId, e.fx, e.fz, e.knock, e.dodge);
+      } else ev.push(e);
+    }
+    for (const r of msg.rev ?? []) if (r.by !== this.localId) ev.push(...r.ev);
+    if (ev.length) this.pending.push({ st: msg.st, ev });
+    this.adoptServerPig(frame);
     // with no frame drawn yet (title screen), show the newest state straight away
     if (this.renderT === null) this.present(frame, frame, 1);
+  }
+
+  /**
+   * Takes over the server's version of our pig when it moved it by force (or when we first see it).
+   * Health always comes from the server.
+   */
+  private adoptServerPig(frame: Frame) {
+    const srv = frame.players.find((p) => p.id === this.localId);
+    if (!srv) return;
+    if (!this.pig || srv.epoch > this.pig.epoch) {
+      const pig = this.pig ?? newPlayer(this.localId, srv.name, srv.tint);
+      for (const k of POSE_KEYS) (pig as unknown as Record<string, unknown>)[k] = (srv as unknown as Record<string, unknown>)[k] ?? (pig as unknown as Record<string, unknown>)[k];
+      pig.epoch = srv.epoch;
+      this.pig = pig;
+      this.strikes = [];
+    }
+    const pig = this.pig;
+    pig.hp = srv.hp;
+    pig.maxHp = srv.maxHp ?? pig.maxHp;
+    pig.maxStam = srv.maxStam ?? pig.maxStam;
+    pig.hurtTick = srv.hurtTick;
+    pig.prompt = srv.prompt;
+    pig.shopNpc = srv.shopNpc;
+    pig.name = srv.name;
+    pig.tint = srv.tint;
+    if (srv.action === 'dead' && pig.action !== 'dead') pig.action = 'dead';
+  }
+
+  /** Points the shadow simulation at the newest world the server sent, with our own pig in it. */
+  private mirror(f: Frame) {
+    const sh = this.shadow;
+    const pig = this.pig!;
+    const copy = <T,>(list: { id: number }[] | undefined) => (list ?? []).map((e) => ({ ...e })) as unknown as T[];
+    if (sh.area !== this.area) sh.showArea(this.area);
+    sh.mode = this.mode;
+    sh.course = this.course;
+    sh.setLevels(this.levels);
+    sh.hunt = this.hunt;
+    sh.overReason = this.overReason;
+    sh.recruitedHogs = this.recruitedHogs;
+    this.edibles.forEach((e, i) => sh.edibles[i] && (sh.edibles[i].hp = e.hp));
+    sh.players = [pig, ...f.players.filter((p) => p.id !== this.localId).map((p) => ({ ...p }))];
+    sh.bots = copy<Bot>(f.lists.bot);
+    sh.projs = copy<Proj>(f.lists.proj);
+    sh.puddles = copy<Puddle>(f.lists.puddle);
+    sh.pots = copy<Pot>(f.lists.pot);
+    sh.wild = copy<Wild>(f.lists.wild);
+    sh.allies = copy<Ally>(f.lists.ally);
+    sh.shocks = [];
+    sh.pickups = [];
+    Object.assign(sh.A, this.allenMeta, f.allen);
+    if (sh.A.target === undefined) sh.A.target = -1;
   }
 
   private withPlayerMeta(p: Player): Player {
@@ -181,25 +253,32 @@ export class NetSim implements GameSim {
 
   step(dt: number, inputs?: Map<number, PlayerInput>) {
     this.clock += dt;
-    // controls: movement is sampled, presses are collected until they're sent
     const inp = inputs?.get(this.localId) ?? NO_INPUT;
     this.btn |= inp.buttons;
-    this.sendT -= dt;
-    if (this.sendT <= 0 || this.btn) {
-      const msg: ClientMsg = { t: 'in', mx: Math.round(inp.mx * 100) / 100, mz: Math.round(inp.mz * 100) / 100, b: this.btn };
-      const key = `${msg.mx},${msg.mz},${msg.b}`;
-      // keep the stream alive at the tick rate even when idle, so the server knows we're still here
-      if (this.btn || key !== this.lastSent || this.sendT <= -0.1) {
-        this.send(msg);
-        this.lastSent = key;
-        this.sendT = 1 / TICK_HZ;
-      }
-      this.btn = 0;
-    }
-
     const frames = this.frames;
     if (!frames.length) return;
     const newest = frames[frames.length - 1];
+
+    // our own pig: move it right here against the newest world, and note every move it makes
+    if (this.pig) {
+      this.mirror(newest);
+      this.shadow.predict(this.localId, dt, inp, (s) => this.strikes.push(s));
+      for (const e of this.shadow.drainEvents()) {
+        this.ready.push(e);
+        // personal cues (the "denied" buzz) stay ours; everything else others should see too
+        if (!('only' in e && e.only !== undefined)) this.relayOut.push(e);
+      }
+      this.sendT -= dt;
+      if (this.sendT <= 0 || this.strikes.length || this.btn) {
+        const k: WireStrike[] = this.strikes.map((s) => [s.fn, s.arg, pack(s.pose, POSE_KEYS)]);
+        this.send({ t: 'pose', ep: this.pig.epoch, p: pack(poseOf(this.pig), POSE_KEYS), b: this.btn, k, ev: this.relayOut.slice(-80) });
+        this.strikes = [];
+        this.relayOut = [];
+        this.btn = 0;
+        this.sendT = 1 / TICK_HZ;
+      }
+    }
+
     const target = newest.st - INTERP_DELAY;
     if (this.renderT === null || Math.abs(this.renderT - target) > 0.6) this.renderT = target;
     else this.renderT += dt + (target - this.renderT) * Math.min(1, dt * 2);
@@ -218,12 +297,10 @@ export class NetSim implements GameSim {
     const alpha = span > 0 ? Math.min(1, Math.max(0, (rt - a.st) / span)) : 1;
     this.present(a, b, alpha);
 
-    // the local pig: newest state, nudged forward by its velocity for the time since it arrived
-    const mine = newest.players.find((p) => p.id === this.localId);
-    const shown = this.players.find((p) => p.id === this.localId);
-    if (mine && shown) {
-      const ahead = Math.min(0.1, this.clock - newest.at);
-      Object.assign(shown, mine, { x: mine.x + mine.vx * ahead, z: mine.z + mine.vz * ahead });
+    // the local pig is drawn exactly as this browser drives it
+    if (this.pig) {
+      const i = this.players.findIndex((p) => p.id === this.localId);
+      if (i >= 0) this.players[i] = { ...this.pig };
     }
 
     // release events once the moment they happened is on screen

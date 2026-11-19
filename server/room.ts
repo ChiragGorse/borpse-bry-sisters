@@ -5,24 +5,25 @@
 import { Sim, MAX_PLAYERS } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { UPGRADES } from '../src/game/data';
-import type { PlayerInput } from '../src/game/sim/types';
+import { POSE_KEYS, type Pose, type PlayerInput, type SimEvent, type Strike, type StrikeFn } from '../src/game/sim/types';
 import { encodeHot, encodeMeta, encodeStats } from '../src/game/net/encode';
-import { INPUT_TIMEOUT, MAX_NAME, PROTOCOL_VERSION, TICK_HZ, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/game/net/protocol';
+import { MAX_NAME, PROTOCOL_VERSION, TICK_HZ, unpack, type ClientMsg, type LobbyPlayer, type Relayed, type ServerMsg } from '../src/game/net/protocol';
 import { headlessMaps } from './maps';
 import type { WsConnection } from './ws';
 
 const DT = 1 / TICK_HZ;
-/** Most messages one client may send per second before it's cut off (inputs arrive at ~30/s). */
-const MAX_MSGS_PER_SEC = 120;
+/** Most messages one client may send per second before it's cut off (poses arrive at up to ~60/s). */
+const MAX_MSGS_PER_SEC = 150;
+const STRIKES: StrikeFn[] = ['attack', 'upStart', 'flopStart', 'whipStart', 'charge', 'chargeHit', 'headbutt', 'cyclone', 'uppercut', 'whip', 'flop', 'zap', 'squeal'];
+/** Effect kinds a browser may relay to the others. */
+const RELAYABLE = new Set<SimEvent['t']>(['vfx', 'sfx', 'text', 'troutLeap', 'dummyHit']);
 
 interface Member {
   conn: WsConnection;
   pid: number;
   name: string;
-  input: PlayerInput;
-  /** Button presses collected since the last tick. */
+  /** Button presses collected since the last tick (the pig itself is driven by the browser). */
   buttons: number;
-  lastInput: number;
   msgCount: number;
   msgWindow: number;
 }
@@ -43,6 +44,8 @@ export class Room {
   private metaAge = 0;
   private statsAge = 0;
   private onEmpty: () => void;
+  /** Effects browsers showed since the last broadcast, to pass on to everyone else. */
+  private relay: Relayed[] = [];
   private log: (s: string) => void;
 
   constructor(code: string, onEmpty: () => void, log: (s: string) => void = () => undefined) {
@@ -72,7 +75,9 @@ export class Room {
     }
     const name = (rawName.replace(/[^\p{L}\p{N} _.'-]/gu, '').trim() || `Pig ${this.members.length + 1}`).slice(0, MAX_NAME);
     const p = this.sim.addPlayer(name)!;
-    const m: Member = { conn, pid: p.id, name, input: { mx: 0, mz: 0, buttons: 0 }, buttons: 0, lastInput: 0, msgCount: 0, msgWindow: 0 };
+    // this browser drives its own pig from now on
+    this.sim.setClientDriven(p.id);
+    const m: Member = { conn, pid: p.id, name, buttons: 0, msgCount: 0, msgWindow: 0 };
     this.members.push(m);
     if (!this.hostPid) this.hostPid = p.id;
     conn.onMessage = (text) => this.onMessage(m, text);
@@ -90,7 +95,7 @@ export class Room {
     if (!this.members.includes(m)) return;
     this.members = this.members.filter((o) => o !== m);
     this.sim.removePlayer(m.pid);
-    this.log(`${m.name} left (${this.members.length} online)`);
+    this.log(`${m.name} left: ${m.conn.reason} (${this.members.length} online)`);
     if (!this.members.length) {
       this.stop();
       this.onEmpty();
@@ -141,14 +146,20 @@ export class Room {
     }
     const isHost = m.pid === this.hostPid;
     switch (msg.t) {
-      case 'in': {
-        const mx = Number(msg.mx) || 0;
-        const mz = Number(msg.mz) || 0;
-        const l = Math.hypot(mx, mz);
-        // never trust a client to move faster than a full stick
-        m.input = l > 1 ? { mx: mx / l, mz: mz / l, buttons: 0 } : { mx, mz, buttons: 0 };
+      case 'pose': {
+        if (!Array.isArray(msg.p) || msg.p.length !== POSE_KEYS.length) break;
+        const pose = unpack<Pose>(msg.p, POSE_KEYS);
+        const strikes: Strike[] = [];
+        for (const k of Array.isArray(msg.k) ? msg.k.slice(0, 32) : []) {
+          if (!Array.isArray(k) || !STRIKES.includes(k[0] as StrikeFn) || !Array.isArray(k[2]) || k[2].length !== POSE_KEYS.length) continue;
+          strikes.push({ fn: k[0] as StrikeFn, arg: Number(k[1]) || 0, pose: unpack<Pose>(k[2], POSE_KEYS) });
+        }
+        this.sim.remoteUpdate(m.pid, Number(msg.ep) || 0, pose, strikes);
         m.buttons |= (Number(msg.b) | 0) & 0x1ff;
-        m.lastInput = now;
+        if (Array.isArray(msg.ev) && msg.ev.length) {
+          const ev = msg.ev.filter((e) => e && RELAYABLE.has(e.t)).slice(0, 80);
+          if (ev.length) this.relay.push({ by: m.pid, ev });
+        }
         break;
       }
       case 'start':
@@ -202,11 +213,9 @@ export class Room {
       return;
     }
     this.tick++;
-    const now = Date.now();
     const inputs = new Map<number, PlayerInput>();
     for (const m of this.members) {
-      const stale = now - m.lastInput > INPUT_TIMEOUT * 1000;
-      inputs.set(m.pid, { mx: stale ? 0 : m.input.mx, mz: stale ? 0 : m.input.mz, buttons: m.buttons });
+      inputs.set(m.pid, { mx: 0, mz: 0, buttons: m.buttons });
       m.buttons = 0;
     }
     for (const id of this.botIds) {
@@ -220,6 +229,10 @@ export class Room {
   private broadcastState(ev: ReturnType<Sim['drainEvents']>) {
     if (!this.members.length) return;
     const msg: ServerMsg = { t: 's', st: this.tick / TICK_HZ, hot: encodeHot(this.sim), ev };
+    if (this.relay.length) {
+      msg.rev = this.relay;
+      this.relay = [];
+    }
     const meta = encodeMeta(this.sim);
     const metaJson = JSON.stringify(meta);
     this.metaAge += DT;

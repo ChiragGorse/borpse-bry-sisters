@@ -22,6 +22,10 @@ import {
 import {
   BTN,
   NO_INPUT,
+  POSE_KEYS,
+  type Pose,
+  type Strike,
+  type StrikeFn,
   type AState,
   type Ally,
   type Area,
@@ -148,7 +152,15 @@ export function newPlayer(id: number, name: string, tint: number): Player {
     hurtTick: 0,
     prompt: null,
     shopNpc: null,
+    epoch: 0,
   };
+}
+
+/** Copies the owner-driven fields of a pig. */
+export function poseOf(p: Player): Pose {
+  const o: Record<string, unknown> = {};
+  for (const k of POSE_KEYS) o[k] = p[k];
+  return o as Pose;
 }
 
 export function newAllen() {
@@ -301,6 +313,12 @@ export class Sim {
   private tips = new Set<string>();
   /** Records CombatVfx calls as events. */
   private fx: VfxApi;
+  /** Pigs driven by their owner's browser (online play), with moves waiting to be replayed. */
+  private remote = new Map<number, { strikes: Strike[]; pose: Pose | null; guard: number }>();
+  /** Set while replaying a browser's move: no re-aiming, no hit-stop, no events (the owner already showed them). */
+  private replaying = false;
+  /** Client-side prediction: receives the moves the predicted pig makes. */
+  private recorder: ((s: Strike) => void) | null = null;
 
   constructor(maps: SimMaps, opts: { seed?: number } = {}) {
     this.maps = maps;
@@ -339,6 +357,7 @@ export class Sim {
 
   removePlayer(id: number) {
     this.players = this.players.filter((p) => p.id !== id);
+    this.remote.delete(id);
     this.inputs.delete(id);
     if (this.A.focusId === id) this.A.focusId = -1;
     this.dirty = true;
@@ -559,6 +578,7 @@ export class Sim {
   /* ───────────────────────── state helpers ───────────────────────── */
 
   private resetPlayer(p: Player, slot: number) {
+    p.epoch++;
     const pos = this.spawnSpot(slot);
     p.x = pos.x;
     p.z = pos.z;
@@ -697,6 +717,7 @@ export class Sim {
   /** Moves the whole herd (players and squad) to a spot, e.g. when travelling between maps. */
   private travelTo(x: number, z: number, heading: number) {
     this.players.forEach((p, i) => {
+      p.epoch++;
       const pos = i === 0 ? this.safePosition(x, z) : this.spawnSpot(i, x, z, heading);
       p.x = pos.x;
       p.z = pos.z;
@@ -937,6 +958,7 @@ export class Sim {
   /** Gets a knocked-out pig back on its feet with a share of its health, or patches up a standing one. */
   private revive(p: Player, frac: number, heal: number) {
     if (p.action === 'dead') {
+      p.epoch++;
       p.action = 'none';
       p.t = 0;
       p.hp = Math.ceil(p.maxHp * frac);
@@ -979,7 +1001,10 @@ export class Sim {
       this.stats.time += dt;
     }
 
-    for (const p of this.players) this.updatePlayer(p, sdt);
+    for (const p of this.players) {
+      if (this.remote.has(p.id)) this.applyRemote(p, dt);
+      else this.updatePlayer(p, sdt);
+    }
     this.separatePlayers();
     this.updateAllen(sdt);
     this.updateBots(sdt);
@@ -1057,11 +1082,16 @@ export class Sim {
         const d = Math.hypot(dx, dz);
         const min = 1.25;
         if (d < min && d > 0.001) {
+          // browser-driven pigs push themselves (see predict); only move the ones this simulation drives
           const push = (min - d) * 0.5;
-          a.x += (dx / d) * push;
-          a.z += (dz / d) * push;
-          b.x -= (dx / d) * push;
-          b.z -= (dz / d) * push;
+          if (!this.remote.has(a.id)) {
+            a.x += (dx / d) * push;
+            a.z += (dz / d) * push;
+          }
+          if (!this.remote.has(b.id)) {
+            b.x -= (dx / d) * push;
+            b.z -= (dz / d) * push;
+          }
         }
       }
     }
@@ -1167,6 +1197,7 @@ export class Sim {
   }
 
   private aim(p: Player, mx: number, mz: number, moving: boolean, range = 6.5, cone = 1.4) {
+    if (this.replaying) return; // the owner already aimed
     if (moving) p.heading = Math.atan2(mx, mz);
     const e = this.nearestEnemy(p, range);
     if (e) {
@@ -1655,57 +1686,27 @@ export class Sim {
           this.sound('deny', k);
         }
       } else if (wantWhip && lv.tailwhip > 0 && canCancel) {
-        if (k.whipCd <= 0 && k.stam >= 14) this.beginTailWhip(k);
+        if (k.whipCd <= 0 && k.stam >= 14) this.act('whipStart', k, 0, () => this.beginTailWhip(k), true);
         else this.sound('deny', k);
       } else if (wantCharge && canCancel) {
         if (canFireCharge) {
-          k.action = 'charge';
-          k.t = 0;
-          k.riverRush = rushEligible;
-          k.chainHits = 0;
-          k.rushWindow = 0;
-          k.chargeHit.clear();
-          k.dummyChargeHit = false;
-          this.aim(k, mx, mz, moving, 16, 0.9);
-          k.chargeCd = 6 * (1 - 0.175 * lv.rocket);
-          this.sound('oink');
-          if (k.riverRush) {
-            this.sound('splash');
-            this.spawnShock(k.x, k.z, 4.4, 28, false, 0);
-            this.fx.shockWall(k.x, floor + 0.08, k.z, 0x3ef0ff, 0.8, 3.8, 0.8, 2.6, 0.34, 10);
-            this.fx.waterBurst(k.x, floor + 0.6, k.z, 1.25, 6);
-            this.fx.flash(k.x, floor + 1.1, k.z, 0x45e6ff, 11, 0.26, 12);
-            this.floatText(k.x, 2.65, k.z, 'RIVER RUSH!', 'crit');
-          } else {
-            this.sound('roll');
-            const launchCol = lv.rocket > 0 ? 0xff7a1a : 0xffe49e;
-            this.fx.dustRing(k.x, floor, k.z, 8, 0.55, 0xeadcc2, 5.5, 1.5, 0.48);
-            this.fx.sparks(k.x, floor + 0.55, k.z, lv.rocket > 0 ? 14 : 8, launchCol, 11, 0.15, 0.3, {
-              dirX: -Math.sin(k.heading),
-              dirY: 0.2,
-              dirZ: -Math.cos(k.heading),
-              focus: 0.72,
-              hdr: 4.0,
-              altColor: 0xffffff,
-            });
-            if (lv.rocket > 0) this.fx.flash(k.x, floor + 0.9, k.z, 0xff7a1a, 8, 0.2, 9);
-          }
+          this.act('charge', k, 0, () => this.beginCharge(k, mx, mz, moving, rushEligible, floor), true);
         } else {
           this.sound('deny', k);
         }
       } else if (wantZap && canCancel && lv.zap > 0) {
-        if (k.zapCd <= 0) this.doLightningZap(k);
+        if (k.zapCd <= 0) this.act('zap', k, 0, () => this.doLightningZap(k));
         else this.sound('deny', k);
       } else if (wantSqueal && canCancel && lv.squeal > 0) {
-        if (k.squealCd <= 0) this.doSqueal(k);
+        if (k.squealCd <= 0) this.act('squeal', k, 0, () => this.doSqueal(k));
         else this.sound('deny', k);
       } else if (wantAttack) {
         // Upstream Uppercut: roll → attack (buffers early presses so Shift+LMB always feels crisp)
         if (lv.uppercut > 0 && k.action === 'roll') {
-          if (k.t >= 0.12) this.beginUppercut(k, mx, mz, moving);
+          if (k.t >= 0.12) this.act('upStart', k, 0, () => this.beginUppercut(k, mx, mz, moving), true);
           else k.buffered = true;
         } else if (lv.uppercut > 0 && free && k.rollChain > 0) {
-          this.beginUppercut(k, mx, mz, moving);
+          this.act('upStart', k, 0, () => this.beginUppercut(k, mx, mz, moving), true);
         } else if (
           // Tidal Belly Flop: airborne → attack (also chains right out of Uppercut!)
           lv.bellyflop > 0 &&
@@ -1713,10 +1714,10 @@ export class Sim {
           k.y > floor + 0.4 &&
           (free || (k.action === 'uppercut' && k.t >= 0.13) || (k.action === 'attack' && k.t >= 0.13))
         ) {
-          this.beginBellyFlop(k);
+          this.act('flopStart', k, 0, () => this.beginBellyFlop(k), true);
         } else if (free || (k.action === 'tailwhip' && k.t > 0.18)) {
           k.combo = k.comboTimer > 0 && k.combo < maxCombo ? k.combo + 1 : 0;
-          this.beginAttack(k, mx, mz, moving);
+          this.act('attack', k, 0, () => this.beginAttack(k, mx, mz, moving), true);
         } else if (k.action === 'attack') {
           k.buffered = true;
         }
@@ -1745,11 +1746,11 @@ export class Sim {
             k.vz = Math.cos(k.heading) * sp;
             if (!k.hitDone && k.t >= 0.1) {
               k.hitDone = true;
-              this.cycloneStrike(k, false);
+              this.act('cyclone', k, 0, () => this.cycloneStrike(k, false));
             }
             if (!k.hitDone2 && k.t >= 0.3) {
               k.hitDone2 = true;
-              this.cycloneStrike(k, true);
+              this.act('cyclone', k, 1, () => this.cycloneStrike(k, true));
             }
             if (k.t >= 0.52) {
               k.action = 'none';
@@ -1762,12 +1763,12 @@ export class Sim {
             k.vz = Math.cos(k.heading) * lunge;
             if (!k.hitDone && k.t >= 0.09) {
               k.hitDone = true;
-              this.headbuttStrike(k);
+              this.act('headbutt', k, 0, () => this.headbuttStrike(k));
             }
             if (k.t >= dur) {
               if (k.buffered && k.combo < maxCombo) {
                 k.combo++;
-                this.beginAttack(k, mx, mz, moving);
+                this.act('attack', k, 0, () => this.beginAttack(k, mx, mz, moving), true);
               } else {
                 k.action = 'none';
                 k.comboTimer = k.combo < maxCombo ? 0.5 : 0;
@@ -1786,7 +1787,7 @@ export class Sim {
           }
           if (!k.hitDone && k.t >= 0.08) {
             k.hitDone = true;
-            this.uppercutStrike(k);
+            this.act('uppercut', k, 0, () => this.uppercutStrike(k));
           }
           if (k.t >= 0.4) k.action = 'none';
           break;
@@ -1811,7 +1812,7 @@ export class Sim {
           k.vz = moving ? mz * 6 : k.vz * Math.exp(-10 * dt);
           if (!k.hitDone && k.t >= 0.06) {
             k.hitDone = true;
-            this.tailWhipStrike(k);
+            this.act('whip', k, 0, () => this.tailWhipStrike(k));
           }
           if (k.t >= 0.28) {
             k.action = 'none';
@@ -1826,7 +1827,7 @@ export class Sim {
           k.vz = k.rdz * sp;
           if (k.buffered && lv.uppercut > 0 && k.t >= 0.14) {
             k.buffered = false;
-            this.beginUppercut(k, mx, mz, moving);
+            this.act('upStart', k, 0, () => this.beginUppercut(k, mx, mz, moving), true);
           } else if (k.t >= 0.42) {
             k.action = 'none';
             if (lv.uppercut > 0) k.rollChain = 0.38;
@@ -1845,74 +1846,7 @@ export class Sim {
           if (this.rnd() < dt * 55) {
             this.fx.chargeTrail(k.x, floor, k.z, hx, hz, rush ? 'river' : lv.rocket > 0 ? 'rocket' : 'dust');
           }
-          const rushMul = rush ? (lv.riverrush >= 2 ? 1.75 : 1.45) : 1;
-          const cd = (38 + 14 * lv.rocket) * rushMul;
-          const mul = this.attackMul(k);
-          for (const b of [...this.bots]) {
-            if (!k.chargeHit.has(b.id) && Math.hypot(b.x - k.x, b.z - k.z) < (rush ? 2.7 : 2.1) + b.rad * 0.4) {
-              k.chargeHit.add(b.id);
-              this.damageBot(b, (52 + 12 * lv.rocket) * rushMul * mul * 0.75, hx * 20, hz * 20, true);
-              this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
-              this.sound(rush ? 'splash' : 'hit');
-            }
-          }
-          if (this.hunt) for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < 2.4) this.recruit(w, k);
-          if (this.hitPots(k.x, k.z, 2.8, cd * mul)) {
-            this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
-            this.sound('hit');
-            this.addShake(0.4, k);
-          }
-          if (!k.dummyChargeHit && this.strikeDummy(k, cd * mul, 2.4, hx, hz, -1, rush ? 'RIVER RUSH!' : 'HOG CHARGE!')) {
-            k.dummyChargeHit = true;
-            this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
-            this.sound('bighit');
-            this.hitstop = Math.max(this.hitstop, 0.11);
-            this.addShake(rush ? 0.85 : 0.6, k);
-            k.action = 'none';
-            k.riverRush = false;
-            k.vx = -hx * 8;
-            k.vz = -hz * 8;
-            k.vy = 6.5;
-            k.grounded = false;
-          }
-          if (k.action === 'charge' && A.active && A.y < 3 && Math.hypot(A.x - k.x, A.z - k.z) < (A.shielded ? 4.3 : rush ? 3.2 : 2.9)) {
-            if (this.damageAllen(cd * mul, rush ? 70 : 45, { heavy: true, by: k })) {
-              this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
-              this.sound('bighit');
-              if (rush) this.sound('splash');
-              this.hitstop = Math.max(this.hitstop, rush ? 0.16 : 0.13);
-              this.addShake(rush ? 0.95 : 0.8, k);
-              const ix = k.x + hx * 1.5;
-              const iz = k.z + hz * 1.5;
-              const hitCol = rush ? 0x4ef0ff : lv.rocket > 0 ? 0xff8a24 : 0xffe14d;
-              this.fx.hitBurst(ix, 1.75, iz, hitCol, rush ? 2.15 : 1.75, hx, hz);
-              this.fx.shockWall(ix, floor + 0.06, iz, hitCol, 0.9, rush ? 6.2 : 4.6, 0.9, rush ? 3.4 : 2.5, 0.38, rush ? 9 : 6);
-              if (rush) {
-                this.fx.waterBurst(ix, 1.5, iz, 1.65, 8);
-                this.fx.groundMark(ix, floor, iz, 4.2, 'splash', 0x5ff2ff, 2.0);
-              } else {
-                this.fx.dustRing(ix, floor, iz, 10, 0.8, 0xeadcc2, 7.5, 1.8, 0.58);
-              }
-              this.floatText(A.x, 5.4, A.z, rush ? 'RIVER RUSH!' : 'HOG CHARGE!', rush ? 'crit' : 'info');
-              if (lv.tesla > 0) this.teslaZap(k);
-              k.action = 'none';
-              k.riverRush = false;
-              k.vx = -hx * 9;
-              k.vz = -hz * 9;
-              k.vy = 7;
-              k.grounded = false;
-              k.invuln = Math.max(k.invuln, 0.35);
-            } else if (A.shielded || A.state === 'spin') {
-              // bounce off his invincibility stage
-              k.action = 'none';
-              k.riverRush = false;
-              k.vx = -hx * 11;
-              k.vz = -hz * 11;
-              k.vy = 6.5;
-              k.grounded = false;
-              this.addShake(0.4, k);
-            }
-          }
+          this.act('chargeHit', k, 0, () => this.chargeContact(k, floor));
           if (k.action === 'charge' && k.t >= (rush ? 0.56 : 0.5)) {
             k.action = 'none';
             k.riverRush = false;
@@ -1962,7 +1896,7 @@ export class Sim {
         k.grounded = true;
         k.hitDone = true;
         k.t = 0;
-        this.bellyFlopLand(k);
+        this.act('flop', k, 0, () => this.bellyFlopLand(k));
       } else {
         if (!k.grounded && k.vy < -8) this.fx.emit(k.x, floor + 0.2, k.z, 5, 0xe9dfc8, 3, 0.22, 0.35, 3);
         k.y = floor;
@@ -1991,6 +1925,293 @@ export class Sim {
         k.z = A.z + (dz / d) * pr;
       }
     }
+  }
+
+
+  private beginCharge(k: Player, mx: number, mz: number, moving: boolean, rushEligible: boolean, floor: number) {
+    const lv = this.levels;
+    k.action = 'charge';
+    k.t = 0;
+    k.riverRush = rushEligible;
+    k.chainHits = 0;
+    k.rushWindow = 0;
+    k.chargeHit.clear();
+    k.dummyChargeHit = false;
+    this.aim(k, mx, mz, moving, 16, 0.9);
+    k.chargeCd = 6 * (1 - 0.175 * lv.rocket);
+    this.sound('oink');
+    if (k.riverRush) {
+      this.sound('splash');
+      this.spawnShock(k.x, k.z, 4.4, 28, false, 0);
+      this.fx.shockWall(k.x, floor + 0.08, k.z, 0x3ef0ff, 0.8, 3.8, 0.8, 2.6, 0.34, 10);
+      this.fx.waterBurst(k.x, floor + 0.6, k.z, 1.25, 6);
+      this.fx.flash(k.x, floor + 1.1, k.z, 0x45e6ff, 11, 0.26, 12);
+      this.floatText(k.x, 2.65, k.z, 'RIVER RUSH!', 'crit');
+    } else {
+      this.sound('roll');
+      const launchCol = lv.rocket > 0 ? 0xff7a1a : 0xffe49e;
+      this.fx.dustRing(k.x, floor, k.z, 8, 0.55, 0xeadcc2, 5.5, 1.5, 0.48);
+      this.fx.sparks(k.x, floor + 0.55, k.z, lv.rocket > 0 ? 14 : 8, launchCol, 11, 0.15, 0.3, {
+        dirX: -Math.sin(k.heading),
+        dirY: 0.2,
+        dirZ: -Math.cos(k.heading),
+        focus: 0.72,
+        hdr: 4.0,
+        altColor: 0xffffff,
+      });
+      if (lv.rocket > 0) this.fx.flash(k.x, floor + 0.9, k.z, 0xff7a1a, 8, 0.2, 9);
+    }
+  }
+
+  /** Hog Charge contact checks for one step: rams bots, jars, the dummy, wild hogs and Allen. */
+  private chargeContact(k: Player, floor: number) {
+    const lv = this.levels;
+    const A = this.A;
+    const hx = Math.sin(k.heading);
+    const hz = Math.cos(k.heading);
+    const rush = k.riverRush;
+    const rushMul = rush ? (lv.riverrush >= 2 ? 1.75 : 1.45) : 1;
+    const cd = (38 + 14 * lv.rocket) * rushMul;
+    const mul = this.attackMul(k);
+    for (const b of [...this.bots]) {
+      if (!k.chargeHit.has(b.id) && Math.hypot(b.x - k.x, b.z - k.z) < (rush ? 2.7 : 2.1) + b.rad * 0.4) {
+        k.chargeHit.add(b.id);
+        this.damageBot(b, (52 + 12 * lv.rocket) * rushMul * mul * 0.75, hx * 20, hz * 20, true);
+        this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
+        this.sound(rush ? 'splash' : 'hit');
+      }
+    }
+    if (this.hunt) for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < 2.4) this.recruit(w, k);
+    if (this.hitPots(k.x, k.z, 2.8, cd * mul)) {
+      this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
+      this.sound('hit');
+      this.addShake(0.4, k);
+    }
+    if (!k.dummyChargeHit && this.strikeDummy(k, cd * mul, 2.4, hx, hz, -1, rush ? 'RIVER RUSH!' : 'HOG CHARGE!')) {
+      k.dummyChargeHit = true;
+      this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
+      this.sound('bighit');
+      this.hitstop = Math.max(this.hitstop, 0.11);
+      this.addShake(rush ? 0.85 : 0.6, k);
+      k.action = 'none';
+      k.riverRush = false;
+      k.vx = -hx * 8;
+      k.vz = -hz * 8;
+      k.vy = 6.5;
+      k.grounded = false;
+    }
+    if (k.action === 'charge' && A.active && A.y < 3 && Math.hypot(A.x - k.x, A.z - k.z) < (A.shielded ? 4.3 : rush ? 3.2 : 2.9)) {
+      if (this.damageAllen(cd * mul, rush ? 70 : 45, { heavy: true, by: k })) {
+        this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
+        this.sound('bighit');
+        if (rush) this.sound('splash');
+        this.hitstop = Math.max(this.hitstop, rush ? 0.16 : 0.13);
+        this.addShake(rush ? 0.95 : 0.8, k);
+        const ix = k.x + hx * 1.5;
+        const iz = k.z + hz * 1.5;
+        const hitCol = rush ? 0x4ef0ff : lv.rocket > 0 ? 0xff8a24 : 0xffe14d;
+        this.fx.hitBurst(ix, 1.75, iz, hitCol, rush ? 2.15 : 1.75, hx, hz);
+        this.fx.shockWall(ix, floor + 0.06, iz, hitCol, 0.9, rush ? 6.2 : 4.6, 0.9, rush ? 3.4 : 2.5, 0.38, rush ? 9 : 6);
+        if (rush) {
+          this.fx.waterBurst(ix, 1.5, iz, 1.65, 8);
+          this.fx.groundMark(ix, floor, iz, 4.2, 'splash', 0x5ff2ff, 2.0);
+        } else {
+          this.fx.dustRing(ix, floor, iz, 10, 0.8, 0xeadcc2, 7.5, 1.8, 0.58);
+        }
+        this.floatText(A.x, 5.4, A.z, rush ? 'RIVER RUSH!' : 'HOG CHARGE!', rush ? 'crit' : 'info');
+        if (lv.tesla > 0) this.teslaZap(k);
+        k.action = 'none';
+        k.riverRush = false;
+        k.vx = -hx * 9;
+        k.vz = -hz * 9;
+        k.vy = 7;
+        k.grounded = false;
+        k.invuln = Math.max(k.invuln, 0.35);
+      } else if (A.shielded || A.state === 'spin') {
+        // bounce off his invincibility stage
+        k.action = 'none';
+        k.riverRush = false;
+        k.vx = -hx * 11;
+        k.vz = -hz * 11;
+        k.vy = 6.5;
+        k.grounded = false;
+        this.addShake(0.4, k);
+      }
+    }
+  }
+
+  /* ───────────────────────── online: browser-driven pigs ───────────────────────── */
+
+  /** Runs a move: records it for the server when predicting, and always performs it. */
+  private act(fn: StrikeFn, p: Player, arg: number, run: () => void, after = false) {
+    const rec = this.recorder;
+    if (rec && !after) rec({ fn, arg, pose: poseOf(p) });
+    run();
+    if (rec && after) rec({ fn, arg, pose: poseOf(p) });
+  }
+
+  /** Marks a pig as driven by its owner's browser: the simulation stops moving it and replays its moves instead. */
+  setClientDriven(pid: number, on = true) {
+    if (on) this.remote.set(pid, { strikes: [], pose: null, guard: 0 });
+    else this.remote.delete(pid);
+  }
+
+  /** Latest state and moves from a browser-driven pig. Ignored if it predates a forced move (older epoch). */
+  remoteUpdate(pid: number, epoch: number, pose: Pose, strikes: Strike[]) {
+    const r = this.remote.get(pid);
+    const p = this.player(pid);
+    if (!r || !p || epoch < p.epoch) return;
+    r.pose = pose;
+    r.strikes.push(...strikes.slice(0, 32));
+    if (r.strikes.length > 64) r.strikes.splice(0, r.strikes.length - 64);
+  }
+
+  private applyRemote(p: Player, dt: number) {
+    const r = this.remote.get(p.id)!;
+    r.guard = Math.max(0, r.guard - dt);
+    for (const s of r.strikes) this.replay(p, s);
+    r.strikes = [];
+    if (r.pose) {
+      Object.assign(p, r.pose);
+      // keep it on the map whatever arrives
+      const bound = this.mapBound();
+      p.x = clamp(Number.isFinite(p.x) ? p.x : 0, -bound, bound);
+      p.z = clamp(Number.isFinite(p.z) ? p.z : 0, -bound, bound);
+      p.y = clamp(Number.isFinite(p.y) ? p.y : 0, 0, 30);
+      r.pose = null;
+    }
+    // the mud's intermission healing is the one health change a pig's own movement causes
+    const mud = SPOT.mud;
+    if (this.area === 'farm' && this.mode === 'intermission' && p.action !== 'dead' && p.y < 0.3 && Math.hypot(p.x - mud.x, p.z - mud.z) < mud.r) {
+      p.hp = Math.min(p.maxHp, p.hp + 3.5 * dt);
+    }
+  }
+
+  /** Replays one browser-driven move against the shared world, quietly (the owner relays its own effects). */
+  private replay(p: Player, s: Strike) {
+    if (p.action === 'dead' && s.fn !== 'zap') return;
+    Object.assign(p, s.pose);
+    const floor = this.area === 'farm' && isOnLakeDock(p.x, p.z) ? 0.23 : 0;
+    const events = this.events;
+    const hitstop = this.hitstop;
+    this.events = [];
+    this.replaying = true;
+    try {
+      switch (s.fn) {
+        case 'attack':
+          return this.beginAttack(p, 0, 0, false);
+        case 'upStart':
+          return this.beginUppercut(p, 0, 0, false);
+        case 'flopStart':
+          return this.beginBellyFlop(p);
+        case 'whipStart':
+          return this.beginTailWhip(p);
+        case 'charge':
+          return this.beginCharge(p, 0, 0, false, p.riverRush, floor);
+        case 'chargeHit':
+          return this.chargeContact(p, floor);
+        case 'headbutt':
+          return this.headbuttStrike(p);
+        case 'cyclone':
+          return this.cycloneStrike(p, s.arg === 1);
+        case 'uppercut':
+          return this.uppercutStrike(p);
+        case 'whip':
+          return this.tailWhipStrike(p);
+        case 'flop':
+          return this.bellyFlopLand(p);
+        case 'zap':
+          return this.doLightningZap(p);
+        case 'squeal':
+          return this.doSqueal(p);
+      }
+    } finally {
+      this.replaying = false;
+      this.events = events;
+      // one pig's hit shouldn't slow the world down for everyone else
+      this.hitstop = hitstop;
+    }
+  }
+
+  /**
+   * Client-side prediction: advances just this browser's pig against the world as it stands, and hands
+   * every move it makes to `record` so the server can replay it.
+   */
+  predict(pid: number, dt: number, input: PlayerInput, record: (s: Strike) => void) {
+    const p = this.player(pid);
+    if (!p) return;
+    this.inputs = new Map([[pid, input]]);
+    this.recorder = record;
+    const sdt = this.hitstop > 0 ? dt * 0.05 : dt;
+    this.hitstop = Math.max(0, this.hitstop - dt);
+    try {
+      this.updatePlayer(p, sdt);
+    } finally {
+      this.recorder = null;
+    }
+    // bump into jars and the rest of the herd
+    for (const o of this.pots) {
+      const dx = p.x - o.x;
+      const dz = p.z - o.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 1.35 && d > 0.001 && p.y < 1.4) {
+        p.x = o.x + (dx / d) * 1.35;
+        p.z = o.z + (dz / d) * 1.35;
+      }
+    }
+    for (const o of this.players) {
+      if (o === p || o.action === 'dead' || p.action === 'dead' || Math.abs(o.y - p.y) > 1) continue;
+      const dx = p.x - o.x;
+      const dz = p.z - o.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 1.25 && d > 0.001) {
+        p.x += (dx / d) * (1.25 - d) * 0.5;
+        p.z += (dz / d) * (1.25 - d) * 0.5;
+      }
+    }
+  }
+
+  /** Applies the server's word that this pig was hit or dodged (prediction side of hurtPlayer). */
+  applyKnock(pid: number, fx: number, fz: number, knock: number, dodge: boolean) {
+    const k = this.player(pid);
+    if (!k || k.action === 'dead') return;
+    if (dodge) {
+      k.dodged = true;
+      k.focus = 3.2;
+      k.stam = Math.min(k.maxStam, k.stam + 24);
+      this.hitstop = Math.max(this.hitstop, 0.1);
+      return;
+    }
+    let dx = k.x - fx;
+    let dz = k.z - fz;
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l;
+    dz /= l;
+    k.vx = dx * knock;
+    k.vz = dz * knock;
+    k.vy = 6;
+    k.grounded = false;
+    k.action = 'hurt';
+    k.t = 0;
+    k.flowCount = 0;
+    k.flowTimer = 0;
+    k.chainHits = 0;
+    k.rushWindow = 0;
+    k.riverRush = false;
+    k.invuln = 0.9;
+    k.blink = 0.9;
+  }
+
+  /** Switches maps without any of the travel side effects (prediction mirrors the server's map). */
+  showArea(area: Area) {
+    if (area === 'forest' && !this.forestColliders) this.forestColliders = this.maps.loadForest().colliders;
+    this.area = area;
+  }
+
+  /** Sets shared upgrades (prediction mirrors the server's), keeping derived stats in step. */
+  setLevels(levels: Record<UpgradeId, number>) {
+    this.levels = { ...levels };
+    this.turretCollider.enabled = levels.cannon > 0;
   }
 
   /**
@@ -2225,8 +2446,10 @@ export class Sim {
   /** Damages one pig. Returns true when the hit landed. */
   private hurtPlayer(p: Player, dmg: number, fx: number, fz: number, knock: number): boolean {
     const k = p;
+    const remote = this.remote.get(k.id);
     // rolling through a hit at the last moment rewards a Perfect Dodge
     if (k.action === 'roll' && k.invuln > 0 && !k.dodged && !this.overReason) {
+      if (remote) this.events.push({ t: 'knock', only: k.id, fx, fz, knock, dodge: true });
       k.dodged = true;
       k.focus = 3.2;
       k.stam = Math.min(k.maxStam, k.stam + 24);
@@ -2237,7 +2460,12 @@ export class Sim {
       this.fx.slash({ x: k.x, y: 0.95 + k.y, z: k.z, heading: k.heading, color: 0x7df9ff, radius: 2.9, full: true, spin: 18, dur: 0.34, rise: 1.4, hdr: 4.2 });
       this.fx.motes(k.x, 0.9 + k.y, k.z, 16, 0x7df9ff, 6, 0.2, 0.7, -3, 8, 0.8, 3.8);
     }
-    if (k.invuln > 0 || k.action === 'dead' || this.overReason) return false;
+    if (k.invuln > 0 || (remote && remote.guard > 0) || k.action === 'dead' || this.overReason) return false;
+    if (remote) {
+      // the owner's browser moves the pig: tell it to take the knockback, and don't hit it again before it hears
+      remote.guard = 0.9;
+      this.events.push({ t: 'knock', only: k.id, fx, fz, knock, dodge: false });
+    }
     const def = (1 - 0.1 * this.levels.hide) * (k.muddy > 0 ? 0.85 : 1);
     const d = Math.max(1, Math.round(dmg * def));
     k.hp -= d;
@@ -2269,6 +2497,7 @@ export class Sim {
       k.hp = 0;
       k.action = 'dead';
       k.t = 0;
+      k.epoch++;
       if (this.living().length > 0) {
         // the rest of the herd fights on; knocked-out pigs get back up when the course ends
         this.floatText(k.x, 3.2, k.z, `${k.name} is down!`, 'hurt hog-callout');
@@ -2557,6 +2786,7 @@ export class Sim {
       o.wob = Math.max(0, o.wob - dt * 3);
       // solid enough to bump into
       for (const k of this.players) {
+        if (this.remote.has(k.id)) continue;
         const dx = k.x - o.x;
         const dz = k.z - o.z;
         const d = Math.hypot(dx, dz);

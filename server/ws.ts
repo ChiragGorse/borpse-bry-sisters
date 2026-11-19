@@ -16,6 +16,8 @@ export class WsConnection {
   onMessage: (text: string) => void = () => undefined;
   onClose: () => void = () => undefined;
   closed = false;
+  /** Why the connection ended, for the server log. */
+  reason = 'closed by client';
   private socket: Duplex;
   private buf: Buffer = Buffer.alloc(0);
   private parts: Buffer[] = [];
@@ -28,9 +30,12 @@ export class WsConnection {
     socket.on('data', (d: Buffer) => this.onData(d));
     socket.on('close', () => this.finish());
     socket.on('error', () => this.finish());
-    // drop connections that stop answering pings (laptop lid closed, network gone)
+    // drop connections that go silent for two ping rounds (laptop lid closed, network gone)
     this.pinger = setInterval(() => {
-      if (!this.alive) return this.terminate();
+      if (!this.alive) {
+        this.reason = 'stopped answering pings';
+        return this.terminate();
+      }
       this.alive = false;
       this.frame(0x9, Buffer.alloc(0));
     }, 15000);
@@ -43,12 +48,16 @@ export class WsConnection {
 
   send(text: string) {
     if (this.closed) return;
-    if (this.socket.writableLength > MAX_BUFFERED) return this.terminate();
+    if (this.socket.writableLength > MAX_BUFFERED) {
+      this.reason = 'too far behind on reading';
+      return this.terminate();
+    }
     this.frame(0x1, Buffer.from(text, 'utf8'));
   }
 
   close(code = 1000, reason = '') {
     if (this.closed) return;
+    if (reason) this.reason = reason;
     const r = Buffer.from(reason, 'utf8');
     const p = Buffer.alloc(2 + r.length);
     p.writeUInt16BE(code, 0);
@@ -90,6 +99,8 @@ export class WsConnection {
   }
 
   private onData(d: Buffer) {
+    // anything from the client proves it's there, even if a pong is stuck behind a slow download
+    this.alive = true;
     this.buf = this.buf.length ? Buffer.concat([this.buf, d]) : d;
     for (;;) {
       if (this.buf.length < 2) return;
