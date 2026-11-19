@@ -59,6 +59,21 @@ export const FOREST_HOMES = [
   { x: 45, z: -38, name: 'Mossy Hollow', r: 11 },
 ];
 
+/** Where truffle caches can be buried for a Hog Hunt (a few are picked each time). */
+export const TRUFFLE_SPOTS = [
+  { x: -11, z: 32, name: 'Fern Hollow' },
+  { x: -39, z: 13, name: 'The Old Camp' },
+  { x: 35, z: 22, name: 'Acorn Grove' },
+  { x: -41, z: -37, name: 'Boar Ridge' },
+  { x: 4, z: -51, name: 'Deepwood' },
+  { x: 45, z: -38, name: 'Mossy Hollow' },
+  { x: -60, z: -4, name: "Guppy's End" },
+  { x: -20, z: -14, name: 'the Hollow Stump' },
+  { x: 22, z: -6, name: 'Crow Clearing' },
+];
+/** Truffle caches dug up per Hog Hunt. */
+export const HUNT_CACHES = 5;
+
 export const GUPPY_END = { x: -60, z: -4, r: 8.5, name: "Guppy's End" };
 export const GUPPY_HP = 105;
 export const GUPPY_SWING = { radius: 2.6, offset: 1.2, windup: 0.62 };

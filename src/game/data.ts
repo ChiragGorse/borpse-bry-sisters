@@ -47,9 +47,9 @@ export const UPGRADES: UpgradeDef[] = [
     name: 'Hearty Slop',
     levels: [
       '+25 max health, full heal (also patches up surviving hogs)',
-      '+25 max health, full heal & squad heal',
-      '+30 max health, full heal & squad heal',
-      '+35 max health, full heal & squad heal',
+      '+25 max health, full heal',
+      '+30 max health, full heal',
+      '+35 max health, full heal',
     ],
     costs: [35, 65, 100, 145],
   },
@@ -64,7 +64,7 @@ export const UPGRADES: UpgradeDef[] = [
     id: 'hide',
     npc: 'rickley',
     name: 'Thick Hide',
-    levels: ['Take 10% less damage (squad takes 12% less too)', 'Take 20% less damage', 'Take 30% less damage'],
+    levels: ['Take 10% less damage', 'Take 20% less damage', 'Take 30% less damage'],
     costs: [40, 75, 115],
   },
   {
@@ -556,16 +556,15 @@ export interface HudState {
   allen: { active: boolean; state: string; moves: { key: string; name: string; cd: number }[] } | null;
   /** Everyone in the herd when more than one pig is playing (null in single-player). */
   party: { id: number; name: string; hp: number; maxHp: number; tint: string; down: boolean; you: boolean }[] | null;
+  /** The Hog Hunt: truffle caches dug up, and how far the next one (or, when done, the trailhead) is. */
   hunt: {
-    caught: number;
+    found: number;
     total: number;
-    spotted: number;
+    done: boolean;
     hint: string;
     listenCd: number;
-    returnDistance: number;
+    distance: number;
     location: string;
-    roster: { name: HogName; status: 'wild' | 'joined' | 'fallen' }[];
-    guppy: { hp: number; maxHp: number; status: 'chasing' | 'windup' | 'recovering' } | null;
   } | null;
   stats: { time: number; dealt: number; taken: number; earned: number; fallen: number; ko: number };
   /** Earwhen's health bar, while he's on the farm. */

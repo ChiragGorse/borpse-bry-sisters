@@ -44,7 +44,7 @@ export interface GameSim {
   truffles: number;
   stats: { time: number; dealt: number; taken: number; earned: number; fallen: number; ko: number };
   recruitedHogs: Set<HogName>;
-  hunt: { total: number; caught: number } | null;
+  hunt: { total: number; found: number; tx: number; tz: number; done: boolean } | null;
   forestHint: string;
   sniffCd: number;
   sniffTime: number;

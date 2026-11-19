@@ -65,7 +65,7 @@ export class NetSim implements GameSim {
   truffles = 0;
   stats: Stats = { time: 0, dealt: 0, taken: 0, earned: 0, fallen: 0, ko: 0 };
   recruitedHogs = new Set<HogName>();
-  hunt: { total: number; caught: number } | null = null;
+  hunt: { total: number; found: number; tx: number; tz: number; done: boolean } | null = null;
   forestHint = '';
   sniffCd = 0;
   sniffTime = 0;

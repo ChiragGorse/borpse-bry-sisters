@@ -146,7 +146,7 @@ export function MobileControls({ game, hud }: Props) {
   }, [game]);
 
   const inForest = hud.area === 'forest';
-  const canListen = inForest && !!hud.hunt && hud.hunt.caught < hud.hunt.total;
+  const canListen = inForest && !!hud.hunt && !hud.hunt.done;
 
   return (
     <div
@@ -206,7 +206,7 @@ function ActionCluster({ game, hud, canListen }: { game: () => Game | null; hud:
   // one button per filled loadout slot
   for (const a of hud.actives) if (a.id) extras.push({ code: a.code, label: a.name, cd: a.cd, className: tint[a.id] ?? 'bg-paper/75', icon: a.icon });
   if (canListen)
-    extras.push({ code: 'KeyR', label: 'Listen', cd: hud.hunt?.listenCd ?? 0, className: 'bg-[#a9d18e]/75', icon: '👂' });
+    extras.push({ code: 'KeyR', label: 'Ask Herb', cd: hud.hunt?.listenCd ?? 0, className: 'bg-[#a9d18e]/75', icon: '🐽' });
   // a full loadout overflows the first ring into a second, wider one
   const outer = [8, 38, 68, 98];
   const outer2 = [14, 40, 66, 92];

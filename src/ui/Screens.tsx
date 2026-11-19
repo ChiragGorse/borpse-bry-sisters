@@ -17,7 +17,7 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
     [<><Key>{padActionLabel(pad, 'zap')}</Key><Key>{padActionLabel(pad, 'squeal')}</Key><Key>{padActionLabel(pad, 'whip')}</Key></>, 'Ability slots 1-3'],
     [<Key>D-pad ← → ↓</Key>, 'Ability slots 4-6 (set them in the pause menu)'],
     [<Key>{padActionLabel(pad, 'interact')}</Key>, 'Talk, travel, or ring the bell'],
-    [<Key>{padActionLabel(pad, 'listen')}</Key>, 'Listen for hogs in the forest'],
+    [<Key>{padActionLabel(pad, 'listen')}</Key>, 'Hog Hunt: ask Herb where to dig'],
     [<Key>{padLabel(pad, 'start')}</Key>, 'Pause / resume'],
   ] : [
     [
@@ -48,7 +48,7 @@ function ControlsList({ pad }: { pad?: PadLayout }) {
     [<Key>Space</Key>, 'Jump — hop shockwaves (or dive with Belly Flop)'],
     [<Key>Q F C V X G</Key>, 'Six ability slots: abilities you buy drop into them (rearrange in the pause menu)'],
     [<Key>E</Key>, 'Talk to Rickley / Kingger / Trout, enter forest, ring bell'],
-    [<Key>R</Key>, 'In the forest: listen for nearby wild hogs'],
+    [<Key>R</Key>, 'Hog Hunt: ask Herb which way to the next truffles'],
     [
       <>
         <Key>Esc</Key>
@@ -323,7 +323,7 @@ export function TitleScreen({
             {waiting ? 'WAITING FOR HOST' : 'DEFEND THE FARM'}
           </button>
           <div className="text-sm font-bold text-paper/80">
-            <p>8 brutal courses · 5 kitchen enemies · permadeath hog squad</p>
+            <p>8 brutal courses · a finale boss · truffle hunts in a haunted forest</p>
             {pad ? (
               <p className="mt-1 flex items-center gap-2 text-[#ffe6a0]" role="status"><Key>{padLabel(pad, 'south')}</Key> Start with controller</p>
             ) : touch ? (
@@ -540,7 +540,7 @@ export function PauseScreen({
         {disconnected ? (
           <p className="mt-2 text-sm font-bold text-barn" role="status">Controller disconnected. Reconnect and press a button, or resume with the keyboard.</p>
         ) : (
-          <p className="mt-1.5 text-sm font-bold text-ink/65">{onReturnFarm ? 'The forest can wait. Your recruits are staying with you.' : 'Allen is politely holding his fork mid-air.'}</p>
+          <p className="mt-1.5 text-sm font-bold text-ink/65">{onReturnFarm ? 'The forest can wait. Your truffles are safe.' : 'Allen is politely holding his fork mid-air.'}</p>
         )}
         <div className="mt-4 flex flex-wrap gap-3">
           <button type="button" onClick={onResume} autoFocus data-pad-default className="btn flex-1 bg-mustard px-5 py-2.5 font-display text-xl leading-none">
@@ -587,7 +587,7 @@ export function PauseScreen({
           </section>
         )}
         {onReturnFarm && (
-          <button type="button" onClick={onReturnFarm} className="btn mt-3 w-full bg-[#416744] px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-paper">Return to the farm with your recruits</button>
+          <button type="button" onClick={onReturnFarm} className="btn mt-3 w-full bg-[#416744] px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-paper">Return to the farm with your truffles</button>
         )}
         <div className="mt-4 rounded-xl border-[2.5px] border-ink bg-white p-3.5">
           {pad && <p className="mb-3 border-b border-ink/15 pb-2 font-mono text-[10px] font-medium uppercase tracking-wide text-ink/65">D-pad / stick to select · {padLabel(pad, 'south')} to confirm</p>}

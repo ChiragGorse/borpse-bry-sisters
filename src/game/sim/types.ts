@@ -206,7 +206,8 @@ interface BotBody {
   /** Arm swing (Path Guppy animation). */
   swing: number;
 }
-export type GuppyState = 'waiting' | 'chasing' | 'windup' | 'recovering' | 'returning';
+/** `scare` and `vanish`: the jump-scare Guppy of the Hog Hunt (his `mode` is 'lunge'). */
+export type GuppyState = 'waiting' | 'chasing' | 'windup' | 'recovering' | 'returning' | 'scare' | 'vanish';
 export type PathGuppy = BotBody & { kind: 'guppy'; behavior: GuppyState };
 export type KitchenBot = BotBody & { kind: BotKind };
 /**
@@ -411,6 +412,8 @@ export type SimEvent =
   | { t: 'text'; x: number; y: number; z: number; s: string; c: string }
   | { t: 'shake'; a: number; only?: number }
   | { t: 'troutLeap' }
+  /** Path Guppy just jumped out at this player. */
+  | { t: 'scare'; only: number }
   | { t: 'bell' }
   | { t: 'dummyHit'; dx: number; dz: number }
   | { t: 'area'; area: Area; changed: boolean }

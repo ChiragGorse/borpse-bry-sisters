@@ -194,7 +194,6 @@ function AllenPanel({ hud, portraits, touch }: { hud: HudState; portraits: Recor
 export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract }: HudProps) {
   const boss = hud.boss;
   const shield = boss.shield;
-  const guppy = hud.hunt?.guppy;
   const pad = hud.gamepad?.active ? hud.gamepad.layout : undefined;
   const low = hud.hp / hud.maxHp < 0.3 && hud.hp > 0;
   const [promptKey, promptText] = hud.prompt ? hud.prompt.split('|') : ['', ''];
@@ -312,7 +311,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
 
         {/* Boss / objective */}
         <div className={`col-span-2 col-start-1 row-start-2 justify-center sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1 ${
-          hud.banner && !boss.active && !guppy ? 'hidden sm:flex' : 'flex'
+          hud.banner && !boss.active ? 'hidden sm:flex' : 'flex'
         } ${touch ? 'landscape:px-[150px] lg:landscape:px-0' : ''}`}>
           {hud.earwhen && !boss.active ? (
             <EarwhenBar earwhen={hud.earwhen} portraits={portraits} />
@@ -385,26 +384,13 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             </section>
             {hud.earwhen && <EarwhenBar earwhen={hud.earwhen} portraits={portraits} />}
             </div>
-          ) : guppy ? (
-            <section aria-label="Path Guppy encounter" className="sticker w-full max-w-[420px] px-4 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.17em] text-[#416744]">Trail encounter</p>
-                  <h2 className="mt-1 font-display text-xl leading-none text-ink">PATH GUPPY</h2>
-                </div>
-                <p className={`text-right text-xs font-bold ${guppy.status === 'windup' ? 'text-barn' : 'text-[#416744]'}`}>
-                  {guppy.status === 'windup' ? 'Dodge the sweep!' : guppy.status === 'recovering' ? 'Open to attack' : 'Chasing Kenji'}
-                </p>
-              </div>
-              <Bar value={guppy.hp} max={guppy.maxHp} label="Path Guppy health" fill="bg-[#e3894c]" className="mt-2 h-3.5" />
-            </section>
           ) : hud.hunt ? (
             <section aria-label="Hog hunt" className="sticker w-full max-w-[530px] px-4 py-3 text-center">
               <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-[#416744]">Hog Hunt / {hud.hunt.location}</p>
-              <p className="mt-1.5 font-display text-2xl leading-none">{hud.hunt.total > 0 ? `${hud.hunt.caught} / ${hud.hunt.total} HOGS RECRUITED` : 'EXPLORE SLOPWOOD'}</p>
+              <p className="mt-1.5 font-display text-2xl leading-none">{hud.hunt.done ? 'BACK TO THE TRAILHEAD' : `${hud.hunt.found} / ${hud.hunt.total} TRUFFLE CACHES`}</p>
               <p className="mt-2 text-xs font-bold leading-snug text-ink/75">{hud.hunt.hint}</p>
               <p className="mt-2 flex items-center justify-center gap-2 text-[11px] font-bold text-ink/65">
-                {hud.hunt.caught < hud.hunt.total && <><Key>{listenKey}</Key> {hud.hunt.listenCd > 0 ? `Listening again in ${Math.ceil(hud.hunt.listenCd)}s` : 'Listen for hogs'}<span aria-hidden="true">/</span></>} Home {hud.hunt.returnDistance}m
+                {!hud.hunt.done && <><Key>{listenKey}</Key> {hud.hunt.listenCd > 0 ? `Herb is sniffing (${Math.ceil(hud.hunt.listenCd)}s)` : 'Ask Herb which way'}<span aria-hidden="true">/</span></>} {hud.hunt.done ? 'Trailhead' : 'Next cache'} {hud.hunt.distance}m
               </p>
             </section>
           ) : (
@@ -422,7 +408,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
           {inForest ? (
             <>
               <h2 className="font-display text-[13px] leading-tight text-[#34563b]">SLOPWOOD FOREST</h2>
-              <p className="mt-1 font-mono text-[9px] uppercase tracking-wide text-ink/65">Farm safe / no time limit</p>
+              <p className="mt-1 font-mono text-[9px] uppercase tracking-wide text-ink/65">Farm safe / something's watching</p>
             </>
           ) : (
           <>
@@ -449,10 +435,8 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
           <canvas ref={minimapRef} width={360} height={360} className="mt-2 hidden aspect-square w-full rounded-lg border-[2.5px] border-ink md:block" aria-label={inForest ? 'Slopwood Forest minimap' : 'Farm minimap'} />
           {inForest ? (
             <ul className="mt-2 hidden flex-wrap gap-x-2.5 gap-y-1 text-[9.5px] font-bold uppercase tracking-wide text-ink/70 md:flex">
-              <li className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#b18c69]" />Wild hog</li>
-              <li className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-pig" />Squad</li>
-              <li className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-mustard" />Way home</li>
-              <li className="flex items-center gap-1"><span className="h-2 w-2 rotate-45 bg-[#cd7540]" />Guppy</li>
+              <li className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#ffb04a]" />Herb</li>
+              <li className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-mustard" />Truffles / home</li>
             </ul>
           ) : (
           <ul className="mt-1.5 hidden flex-wrap gap-x-2.5 gap-y-0.5 text-[9.5px] font-bold uppercase tracking-wide text-ink/70 md:flex">
@@ -481,20 +465,6 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
               Forest
             </li>
           </ul>
-          )}
-          {hud.hunt && (
-            <div className="mt-2 border-t border-ink/20 pt-2">
-              <h3 className="font-mono text-[9px] font-bold uppercase tracking-wider text-[#34563b]">Hog roster</h3>
-              <ul aria-label="Hog roster" className="mt-1.5 grid gap-0.5 text-[10.5px] font-bold leading-snug">
-                {hud.hunt.roster.map(({ name, status }) => (
-                  <li key={name} className={`flex items-baseline gap-1.5 ${status === 'fallen' ? 'text-ink/55' : 'text-ink/85'}`}>
-                    <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'joined' ? 'bg-[#468250]' : status === 'fallen' ? 'bg-barn' : 'bg-[#b18c69]'}`} />
-                    <span className={`min-w-0 [overflow-wrap:anywhere] ${status === 'fallen' ? 'line-through' : ''}`}>{name}</span>
-                    <span className="sr-only">: {status}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
         </section>
       </div>
@@ -548,10 +518,10 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
 
       {inForest && !touch && (
         <aside aria-label="Forest controls" className="sticker absolute bottom-4 left-4 hidden w-[235px] p-3 lg:block">
-          <h2 className="font-display text-sm text-[#34563b]">FIND YOUR HERD</h2>
-          <p className="mt-1.5 text-xs font-bold leading-relaxed text-ink/75">Headbutt or charge to recruit a wild hog. Follow the west trail past the Old Camp to find Path Guppy.</p>
-          <p className="mt-2 text-xs font-bold"><Key>{listenKey}</Key> Listen and reveal a hog</p>
-          <p className="mt-2 text-xs font-bold"><Key>{interactKey}</Key> Leave at the south trailhead</p>
+          <h2 className="font-display text-sm text-[#34563b]">HOG HUNT</h2>
+          <p className="mt-1.5 text-xs font-bold leading-relaxed text-ink/75">Follow Herb's lantern to each truffle cache and dig it up. Stay close: something lurks in these woods.</p>
+          <p className="mt-2 text-xs font-bold"><Key>{listenKey}</Key> Ask Herb which way to the next cache</p>
+          <p className="mt-2 text-xs font-bold"><Key>{interactKey}</Key> Dig when Herb finds a cache · leave at the south trailhead</p>
           <p className="mt-2 text-[10px] font-medium text-ink/60">Need a shortcut? Return through the pause menu.</p>
         </aside>
       )}

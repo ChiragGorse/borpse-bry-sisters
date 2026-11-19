@@ -10,7 +10,8 @@ import {
   COIL,
   FOREST_BOUND,
   FOREST_EXIT,
-  FOREST_HOMES,
+  HUNT_CACHES,
+  TRUFFLE_SPOTS,
   FOREST_START,
   GUPPY_END,
   GUPPY_HP,
@@ -278,8 +279,15 @@ export class Sim {
   truffles = 0;
   stats = { time: 0, dealt: 0, taken: 0, earned: 0, fallen: 0, ko: 0 };
   recruitedHogs = new Set<HogName>();
-  hunt: { total: number; caught: number } | null = null;
-  forestHint = 'Follow the hoofprints into the trees.';
+  /** The current Hog Hunt: caches dug up so far, and where the next one is (tx, tz). */
+  hunt: { total: number; found: number; tx: number; tz: number; done: boolean } | null = null;
+  /** Caches still to dig this hunt (the first is the one Herb is heading for). */
+  private caches: { x: number; z: number; name: string }[] = [];
+  /** Course whose break already had a hunt (Herb needs his rest). */
+  private huntedCourse = -1;
+  /** Seconds until Path Guppy's next jump scare. */
+  private scareT = 0;
+  forestHint = 'Follow Herb into the dark.';
   sniffCd = 0;
   sniffTime = 0;
   sniffTargetId = -1;
@@ -322,7 +330,6 @@ export class Sim {
     ko: number;
   } | null = null;
   private courseFallen = 0;
-  private guppyDefeated = false;
   private waveT = 10;
   private overTimer = 0;
   private bannerKey = 0;
@@ -671,7 +678,6 @@ export class Sim {
     this.tod = 0;
     this.snapshot = null;
     this.recruitedHogs.clear();
-    this.guppyDefeated = false;
     this.courseFallen = 0;
     this.tips.clear();
     this.stats = { time: 0, dealt: 0, taken: 0, earned: 0, fallen: 0, ko: 0 };
@@ -1090,7 +1096,7 @@ export class Sim {
     this.sniffTime = Math.max(0, this.sniffTime - dt);
     if (this.area === 'forest') {
       const listener = this.players.find((p) => this.input(p).buttons & BTN.listen);
-      if (listener) this.listenForHogs(listener);
+      if (listener) this.askHerb(listener);
     }
     this.updateWild(sdt);
     this.updateAllies(sdt);
@@ -1208,15 +1214,7 @@ export class Sim {
         best = b;
       }
     }
-    if (this.area === 'forest') {
-      for (const w of this.wild) {
-        const d = Math.hypot(w.x - p.x, w.z - p.z);
-        if (d < bd) {
-          bd = d;
-          best = w;
-        }
-      }
-    } else if (this.mode === 'intermission') {
+    if (this.area === 'farm' && this.mode === 'intermission') {
       const d = Math.hypot(SPOT.dummy.x - p.x, SPOT.dummy.z - p.z);
       if (d < Math.min(bd, 5.8)) best = SPOT.dummy;
     }
@@ -1436,14 +1434,6 @@ export class Sim {
         hit = true;
       }
     }
-    if (this.hunt) {
-      for (const w of [...this.wild]) {
-        const dx = w.x - k.x;
-        const dz = w.z - k.z;
-        const d = Math.hypot(dx, dz) || 1;
-        if (d < 2.9 && (dx * fx + dz * fz) / d > 0) this.recruit(w, k);
-      }
-    }
     if (this.strikeDummy(k, dmg, 3.1, fx, fz, 0.05)) hit = true;
     if (this.hitPots(k.x, k.z, 3.4, dmg, fx, fz, 0.05)) hit = true;
     if (hit) {
@@ -1486,9 +1476,6 @@ export class Sim {
         this.damageBot(b, dmg, (dx / d) * 15, (dz / d) * 15, second);
         hit = true;
       }
-    }
-    if (this.hunt) {
-      for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < rSmall) this.recruit(w, k);
     }
     if (this.strikeDummy(k, dmg, rSmall, 0, 0, -2, second ? 'CYCLONE!' : undefined)) hit = true;
     if (this.hitPots(k.x, k.z, rSmall + 0.6, dmg)) hit = true;
@@ -1534,9 +1521,6 @@ export class Sim {
         hit = true;
       }
     }
-    if (this.hunt) {
-      for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < 3.5) this.recruit(w, k);
-    }
     if (this.strikeDummy(k, dmg, 3.8, fx, fz, -0.2, 'UPPERCUT!')) hit = true;
     if (this.hitPots(k.x, k.z, 4.2, dmg, fx, fz, -0.2)) hit = true;
     if (hit) {
@@ -1581,9 +1565,6 @@ export class Sim {
         this.damageBot(b, dmg * 1.2, (dx / d) * 18, (dz / d) * 18, true);
         hit = true;
       }
-    }
-    if (this.hunt) {
-      for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < R) this.recruit(w, k);
     }
     if (lv >= 2) {
       this.projs = this.projs.filter((o) => {
@@ -1635,9 +1616,6 @@ export class Sim {
         this.damageBot(b, dmg * 1.15, (dx / d) * push, (dz / d) * push);
         hit = true;
       }
-    }
-    if (this.hunt) {
-      for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < R) this.recruit(w, k);
     }
     // deflect or reflect flying chopsticks!
     let deflected = 0;
@@ -2087,7 +2065,6 @@ export class Sim {
         this.sound(rush ? 'splash' : 'hit');
       }
     }
-    if (this.hunt) for (const w of [...this.wild]) if (Math.hypot(w.x - k.x, w.z - k.z) < 2.4) this.recruit(w, k);
     if (this.hitPots(k.x, k.z, 2.8, cd * mul)) {
       this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
       this.sound('hit');
@@ -2559,9 +2536,6 @@ export class Sim {
     if (this.area === 'farm' && this.mode === 'intermission') {
       pool.push({ kind: 'dummy', x: SPOT.dummy.x, y: 1.9, z: SPOT.dummy.z });
     }
-    if (this.hunt && this.area === 'forest') {
-      for (const w of this.wild) pool.push({ kind: 'wild', x: w.x, y: 1.0, z: w.z, wild: w });
-    }
 
     // Build sequential chain: pick closest target to Kenji within range, then hop across neighbors!
     const chain: ZapTarget[] = [];
@@ -2647,8 +2621,6 @@ export class Sim {
           if (this.damagePot(t.pot, dmg * 1.1)) hits++;
         } else if (t.kind === 'dummy') {
           if (this.strikeDummy(k, dmg, 99, 0, 0, -2, 'LIGHTNING ZAP!')) hits++;
-        } else if (t.kind === 'wild' && t.wild) {
-          this.recruit(t.wild, k);
         }
         prevX = t.x;
         prevY = t.y;
@@ -3948,17 +3920,6 @@ export class Sim {
 
   /* ───────────────────────── minions + projectiles ───────────────────────── */
 
-  private spawnPathGuppy() {
-    const p = this.safePosition(GUPPY_END.x, GUPPY_END.z, 0.9);
-    this.bots.push({
-      id: this.id(),
-      kind: 'guppy', behavior: 'waiting', x: p.x, z: p.z,
-      hp: GUPPY_HP, maxHp: GUPPY_HP, rad: 0.85, heading: 0.22,
-      bite: 0, stun: 0, kx: 0, kz: 0, chomp: 0, flash: 0, ph: 0,
-      mode: 'idle', mt: 0, lx: 0, lz: 0, strafe: 1, hop: 0, moving: false, swing: 0,
-    });
-  }
-
   private alertPathGuppy(b: PathGuppy) {
     b.behavior = 'chasing';
     b.mt = 0;
@@ -4056,7 +4017,6 @@ export class Sim {
   }
 
   private dropGuppyTruffles(b: PathGuppy) {
-    this.guppyDefeated = true;
     for (let i = 0; i < GUPPY_DROPS; i++) {
       const turn = (i * TAU) / GUPPY_DROPS;
       const p = this.safePosition(b.x + 1.4 * Math.sin(turn), b.z + 1.4 * Math.cos(turn), 0.4);
@@ -4080,6 +4040,12 @@ export class Sim {
     b.hp -= d;
     b.flash = 0.12;
     this.stats.dealt += Math.min(d, Math.max(0, Math.ceil(b.hp + d)));
+    if (b.kind === 'guppy' && b.mode === 'lunge' && b.hp > 0) {
+      this.floatText(b.x, 3.4, b.z, String(d), heavy ? 'crit' : 'dmg');
+      this.fx.hitBurst(b.x, 1.72, b.z, 0xf4b962, 0.78);
+      this.guppyVanish(b, true);
+      return;
+    }
     if (b.kind === 'guppy') {
       if (b.hp <= 0) {
         this.stats.ko++;
@@ -4657,7 +4623,8 @@ export class Sim {
       b.kz *= damp;
 
       if (b.kind === 'guppy') {
-        this.updatePathGuppy(b, dt);
+        if (b.mode === 'lunge') this.updateScareGuppy(b, dt);
+        else this.updatePathGuppy(b, dt);
         continue;
       }
       if (b.kind === 'earwhen') {
@@ -5188,8 +5155,15 @@ export class Sim {
     const e = (this.input(k).buttons & BTN.interact) !== 0;
     if (this.area === 'forest') {
       if (near(FOREST_EXIT, 6.5)) {
-        k.prompt = `E|Return to the farm with ${this.hunt?.caught ?? 0} new recruits`;
+        k.prompt = `E|Return to the farm (${this.hunt?.found ?? 0}/${this.hunt?.total ?? 0} caches dug up)`;
         if (e) this.endHunt();
+        return;
+      }
+      const c = this.caches[0];
+      const herb = this.herb();
+      if (c && herb && herb.spotted && near(c, 3.4)) {
+        k.prompt = 'E|Dig up the truffles';
+        if (e) this.digCache(k);
       }
       return;
     }
@@ -5242,8 +5216,13 @@ export class Sim {
           this.openShop(k.id, 'trout');
         }
       } else if (near(SPOT.hunt, 7)) {
-        k.prompt = 'E|Travel to Slopwood Forest';
-        if (e) this.startHunt();
+        if (this.huntedCourse === this.course) {
+          k.prompt = "E|Herb's resting (back after the next course)";
+          if (e) this.say('Herb', '*snore*… five more minutes… the truffles will keep…', 3);
+        } else {
+          k.prompt = 'E|Hog Hunt: hunt truffles in Slopwood Forest with Herb';
+          if (e) this.startHunt();
+        }
       } else if (near(SPOT.bell, 5)) {
         k.prompt = `E|Ring the Dinner Bell — start ${this.course >= FINALE ? 'the final course' : `Course ${this.course + 1}`}`;
         if (e) this.beginCourse();
@@ -5277,10 +5256,6 @@ export class Sim {
     return this.allies.filter((a) => a.dying <= 0 && a.hp > 0).length;
   }
 
-  private squadFull() {
-    return this.livingAlliesCount() >= MAX_SQUAD;
-  }
-
   private clearWild() {
     this.wild = [];
     this.hunt = null;
@@ -5311,68 +5286,64 @@ export class Sim {
     if (this.area !== 'farm' || this.hunt || this.mode !== 'intermission' || this.overReason) return;
     this.clearEnemies();
     for (const p of this.players) p.shopNpc = null;
+    this.huntedCourse = this.course;
     this.setArea('forest');
     this.travelTo(FOREST_START.x, FOREST_START.z, PI);
-    HOG_NAMES.forEach((name, i) => {
-      if (!this.recruitedHogs.has(name)) this.spawnWild(name, i);
-    });
-    this.hunt = { total: this.wild.length, caught: 0 };
-    this.forestHint = this.wild.length
-      ? 'Follow the hoofprints or press R to listen. The west trail leads past the Old Camp.'
-      : 'There are no wild recruits left. Explore the trails or return to the farm.';
-    if (!this.guppyDefeated) this.spawnPathGuppy();
-    this.sound('oink');
-    this.showBanner('SLOPWOOD FOREST', "West trail: the Old Camp and Guppy's End");
-    if (!this.tips.has('guppyTrail')) {
-      this.tips.add('guppyTrail');
-      this.say('Kingger', 'Follow the west trail past the Old Camp to find Path Guppy. He guards a stash of truffles.', 5.5);
+    // bury a handful of caches, then visit them nearest-first from the trailhead
+    const pool = [...TRUFFLE_SPOTS];
+    const chosen: { x: number; z: number; name: string }[] = [];
+    while (chosen.length < HUNT_CACHES && pool.length) chosen.push(pool.splice(Math.floor(this.rnd() * pool.length), 1)[0]);
+    this.caches = [];
+    let cx = FOREST_START.x;
+    let cz = FOREST_START.z;
+    while (chosen.length) {
+      chosen.sort((p, q) => Math.hypot(p.x - cx, p.z - cz) - Math.hypot(q.x - cx, q.z - cz));
+      const n = chosen.shift()!;
+      const pos = this.safePosition(n.x + this.rand(-4, 4), n.z + this.rand(-4, 4), 1);
+      this.caches.push({ x: pos.x, z: pos.z, name: n.name });
+      cx = pos.x;
+      cz = pos.z;
     }
+    this.hunt = { total: this.caches.length, found: 0, tx: this.caches[0].x, tz: this.caches[0].z, done: false };
+    this.wild = [];
+    const h = this.safePosition(FOREST_START.x + 2.5, FOREST_START.z - 3);
+    this.wild.push({
+      id: this.id(), name: 'Herb', look: 0, x: h.x, z: h.z, heading: PI, tx: h.x, tz: h.z, wait: 1.5, ph: 0,
+      home: { x: h.x, z: h.z, r: 4 }, spotted: false, oinkT: 6, calm: 0, moving: false,
+    });
+    this.scareT = this.rand(22, 34);
+    this.forestHint = 'Follow Herb and his lantern. When he starts rooting around, dig (E).';
+    this.sound('oink');
+    this.showBanner('HOG HUNT', 'Slopwood Forest, after dark · follow Herb to the truffles');
+    this.say('Herb', "Stay close to my lantern, Kenji. These woods get… weird at night. I can smell truffles this way.", 5);
     this.dirty = true;
   }
 
-  private spawnWild(name: HogName, index: number) {
-    const home = FOREST_HOMES[index];
-    const a = this.rnd() * TAU;
-    const r = this.rand(0, home.r * 0.45);
-    const { x, z } = this.safePosition(home.x + Math.cos(a) * r, home.z + Math.sin(a) * r);
-    this.wild.push({
-      id: this.id(),
-      name,
-      look: index % 3,
-      x,
-      z,
-      heading: a,
-      tx: x,
-      tz: z,
-      wait: this.rand(0.2, 1.5),
-      ph: this.rnd() * 6,
-      home,
-      spotted: false,
-      oinkT: this.rand(3, 8),
-      calm: 0,
-      moving: false,
-    });
+  /** Herb, the hunt's guide (he lives in the `wild` list so he's drawn and sent like any forest hog). */
+  private herb(): Wild | null {
+    return this.wild.find((w) => w.name === 'Herb') ?? null;
   }
 
   private endHunt(knockedOut = false) {
     const h = this.hunt;
     if (!h || this.area !== 'forest') return;
     this.clearWild();
+    this.caches = [];
     this.clearEnemies();
     this.setArea('farm');
     this.travelTo(SPOT.hunt.x - 3, SPOT.hunt.z - 2, -PI / 2);
     // anyone knocked out on the trail limps home
     for (const p of this.players) this.revive(p, 0.5, 0);
-    const bonus = h.caught * 8;
+    const bonus = h.done ? 20 : 0;
     this.truffles += bonus;
     this.stats.earned += bonus;
-    this.showBanner('BACK ON THE FARM', `${h.caught} new recruits - +${bonus} truffles - squad ${this.livingAlliesCount()}/${MAX_SQUAD}`);
+    this.showBanner('BACK ON THE FARM', `${h.found}/${h.total} truffle caches dug up${bonus ? ` · +${bonus} truffle bonus from Herb` : ''}`);
     this.say(
       'Rickley',
-      knockedOut ? 'Rest up, Kenji. That trail guard is no joke. Your recruits and truffles are safe.' : h.caught ? 'You brought the forest hogs home! That glutton had better watch his back.' : 'The woods will still be there when you need them.',
+      knockedOut ? "Rest up, Kenji. Somethin' in them woods ain't right." : h.found ? 'Good haul! Now spend it before that glutton comes back.' : 'The woods will still be there when you need them.',
       4,
     );
-    this.sound(h.caught ? 'buy' : 'truffle');
+    this.sound(h.found ? 'buy' : 'truffle');
     this.dirty = true;
   }
 
@@ -5388,127 +5359,212 @@ export class Sim {
     this.endHunt(true);
   }
 
-  private listenForHogs(k: Player) {
-    if (!this.hunt || this.area !== 'forest' || this.sniffCd > 0) return;
-    this.sniffCd = 8;
-    this.sniffTime = 6;
-    const nearest = [...this.wild].sort((a, b) => Math.hypot(a.x - k.x, a.z - k.z) - Math.hypot(b.x - k.x, b.z - k.z))[0];
-    this.sniffTargetId = nearest ? nearest.id : -1;
-    this.spawnShock(k.x, k.z, 15, 14, false, 0);
+  /** The listen button: Herb sniffs the air and says which way the next cache is. */
+  private askHerb(k: Player) {
+    const herb = this.herb();
+    if (!this.hunt || !herb || this.area !== 'forest' || this.sniffCd > 0) return;
+    this.sniffCd = 6;
+    this.sniffTime = 4;
+    this.sniffTargetId = herb.id;
     this.sound('oink');
-    if (!nearest) {
-      this.forestHint = 'No wild hogs remain. Follow the golden marker when you want to head home.';
-      this.dirty = true;
+    const c = this.caches[0];
+    if (!c) {
+      this.say('Herb', "That's every truffle I can smell. Back to the trailhead, by the glowing marker!", 4);
       return;
     }
-    const dx = nearest.x - k.x;
-    const dz = nearest.z - k.z;
+    const dx = c.x - k.x;
+    const dz = c.z - k.z;
     const dist = Math.hypot(dx, dz);
     const ns = Math.abs(dz) > dist * 0.35 ? (dz < 0 ? 'north' : 'south') : '';
     const ew = Math.abs(dx) > dist * 0.35 ? (dx < 0 ? 'west' : 'east') : '';
-    const direction = `${ns}${ew}`;
-    this.forestHint = `${nearest.name} is ${direction ? `to the ${direction}` : 'close by'}, about ${Math.round(dist)}m away.`;
-    this.say(k.name, this.forestHint, 4.5);
-    if (dist < 18) nearest.calm = 2.5;
+    const dir = `${ns}${ew}`;
+    this.say('Herb', `*sniff sniff* ${dir ? `To the ${dir}` : 'Right around here'}, near ${c.name}. About ${Math.round(dist)} metres.`, 4);
     this.dirty = true;
   }
 
-  private recruit(w: Wild, by: Player) {
-    if (!this.hunt || this.squadFull() || this.recruitedHogs.has(w.name) || !this.wild.includes(w)) return;
-    this.wild = this.wild.filter((o) => o !== w);
-    this.recruitedHogs.add(w.name);
-    const maxHp = 55 + this.levels.slop * 8;
-    this.spawnAllyPig(w.x, w.z, w.heading, HOG_TINTS[HOG_NAMES.indexOf(w.name)], w.name, maxHp, maxHp);
-    this.hunt.caught++;
-    this.fx.hitBurst(w.x, 1.15, w.z, 0xffe14d, 1.1);
-    this.sound('oink');
-    this.sound('buy');
-    this.floatText(w.x, 2.5, w.z, `${w.name} joined!`, 'gold hog-callout');
-    this.say(by.name, `${w.name} joined the rebellion.`, 3);
-    if (this.hunt.caught >= this.hunt.total) {
-      this.forestHint = 'All hogs recruited! Follow the golden marker back to the farm.';
-      this.showBanner('THE HERD IS WITH YOU', 'Return to the trailhead - your farm needs its rebellion');
+  private digCache(by: Player) {
+    const c = this.caches.shift();
+    const h = this.hunt;
+    const herb = this.herb();
+    if (!c || !h) return;
+    h.found++;
+    for (let i = 0; i < 3; i++) this.spawnTruffle(c.x, c.z, true);
+    this.fx.dust(c.x, 0.3, c.z, 10, 0x5c4630, { spread: 1, speed: 4, rise: 2.5, size0: 0.6, size1: 2, life: 0.8 });
+    this.fx.sparks(c.x, 0.8, c.z, 20, 0xf3bd59, 8, 0.16, 0.7, { up: 1, grav: 10, hdr: 2.6 });
+    this.sound('truffle');
+    this.sound('pop');
+    this.floatText(c.x, 2.4, c.z, 'TRUFFLES!', 'gold');
+    if (herb) herb.spotted = false;
+    const next = this.caches[0];
+    if (next) {
+      h.tx = next.x;
+      h.tz = next.z;
+      this.forestHint = `${h.found}/${h.total} caches · follow Herb towards ${next.name}`;
+      this.say('Herb', this.pick(['Oink! Got it! I smell more this way.', 'Lovely, earthy, perfect. Next!', `Good dig, ${by.name}. Stay close now.`]), 3);
     } else {
-      this.forestHint = 'A new comrade! Keep exploring, or bring your recruits back to the trailhead.';
+      h.done = true;
+      h.tx = FOREST_EXIT.x;
+      h.tz = FOREST_EXIT.z;
+      this.forestHint = 'Every cache dug up! Follow Herb back to the trailhead.';
+      this.showBanner('ALL TRUFFLES FOUND', 'Get back to the trailhead, and keep an eye on the dark');
+      this.say('Herb', "That's the lot! Let's get out of here before… you know who shows up.", 4);
     }
     this.dirty = true;
   }
 
+  /** Herb walks ahead to the next cache, waits for stragglers, roots around when he's there, and spooks easily. */
   private updateWild(dt: number) {
-    if (!this.hunt || this.area !== 'forest') return;
-    for (const w of this.wild) {
-      w.wait -= dt;
-      w.oinkT -= dt;
-      w.calm = Math.max(0, w.calm - dt);
-      const k = this.nearestPlayer(w.x, w.z, Infinity, this.players);
-      const dx = k ? w.x - k.x : 99;
-      const dz = k ? w.z - k.z : 0;
-      const d = Math.hypot(dx, dz) || 0.001;
-      let dirX = 0;
-      let dirZ = 0;
-      let sp = 0;
-      if (d < 24 && !w.spotted) {
-        w.spotted = true;
-        this.forestHint = `${w.name} spotted! Close in, then headbutt or Hog Charge to recruit.`;
-        this.floatText(w.x, 2.8, w.z, w.name, 'gold hog-callout');
+    const w = this.herb();
+    if (!this.hunt || this.area !== 'forest' || !w) return;
+    w.calm = Math.max(0, w.calm - dt);
+    w.oinkT -= dt;
+    const k = this.nearestPlayer(w.x, w.z, Infinity) ?? this.players[0];
+    const dK = k ? Math.hypot(k.x - w.x, k.z - w.z) : 0;
+    const tx = this.hunt.tx;
+    const tz = this.hunt.tz;
+    const dT = Math.hypot(tx - w.x, tz - w.z);
+    let sp = 0;
+    let angle = w.heading;
+    const guppy = this.bots.find((b) => b.kind === 'guppy');
+    if (w.calm > 0 && guppy) {
+      // scared: bolt away from Path Guppy
+      angle = Math.atan2(w.x - guppy.x, w.z - guppy.z);
+      sp = 8;
+    } else if (dK > 11 && k) {
+      // too far ahead: wait, and call back
+      w.heading = angLerp(w.heading, Math.atan2(k.x - w.x, k.z - w.z), 4 * dt);
+      if (w.oinkT <= 0) {
+        w.oinkT = 9;
         this.sound('oink');
+        if (!this.subtitle) this.say('Herb', this.pick(['Over here! Follow the light!', "Don't wander off, it's dark out there!", 'This way, this way!']), 2.6);
+      }
+    } else if (dT > 1.4) {
+      angle = Math.atan2(tx - w.x, tz - w.z);
+      sp = dK > 7 ? 3.2 : 5.4;
+      w.spotted = false;
+    } else if (!this.hunt.done) {
+      // at the cache: nose down, digging
+      if (!w.spotted) {
+        w.spotted = true;
+        this.sound('oink');
+        this.say('Herb', this.pick(['Here! Right here! Dig (E)!', 'Oooh, I smell a big one. Dig!', 'Snout says HERE.']), 2.8);
         this.dirty = true;
       }
-      if (w.oinkT <= 0) {
-        w.oinkT = this.rand(9, 17);
-        if (d < 26) this.sound('oink');
-      }
-      if (d < 7 && k && k.action !== 'dead' && w.calm <= 0) {
-        dirX = dx / d;
-        dirZ = dz / d;
-        sp = 6.4;
-      } else if (w.wait <= 0) {
-        const tdx = w.tx - w.x;
-        const tdz = w.tz - w.z;
-        const td = Math.hypot(tdx, tdz);
-        if (td < 0.6) {
-          w.wait = this.rand(0.8, 2.2);
-          const a = this.rnd() * TAU;
-          const r = Math.sqrt(this.rnd()) * w.home.r;
-          const target = this.safePosition(w.home.x + Math.cos(a) * r, w.home.z + Math.sin(a) * r);
-          w.tx = target.x;
-          w.tz = target.z;
-        } else {
-          dirX = tdx / td;
-          dirZ = tdz / td;
-          sp = 2.4;
-        }
-      }
-      if (sp > 0) {
-        // Hogs roam their own woodland territory, steering around trunks and rocks.
-        const cx = w.home.x - w.x;
-        const cz = w.home.z - w.z;
-        const cd = Math.hypot(cx, cz) || 0.001;
-        if (cd > w.home.r + 6) {
-          dirX += (cx / cd) * 1.4;
-          dirZ += (cz / cd) * 1.4;
-          const l = Math.hypot(dirX, dirZ) || 1;
-          dirX /= l;
-          dirZ /= l;
-        }
-        let angle = Math.atan2(dirX, dirZ);
-        let next = this.resolve(w.x + Math.sin(angle) * sp * dt, w.z + Math.cos(angle) * sp * dt, 0.65);
-        if (next.hit) {
-          for (const turn of [0.9, -0.9, 1.7, -1.7, PI]) {
-            const test = this.resolve(w.x + Math.sin(angle + turn) * sp * dt, w.z + Math.cos(angle + turn) * sp * dt, 0.65);
-            if (!test.hit) {
-              angle += turn;
-              next = test;
-              break;
-            }
+      if (this.rnd() < dt * 8) this.fx.dust(w.x + Math.sin(w.heading) * 0.8, 0.2, w.z + Math.cos(w.heading) * 0.8, 1, 0x5c4630, { spread: 0.4, speed: 2, rise: 1.4, size0: 0.4, size1: 1, life: 0.5 });
+    }
+    if (sp > 0) {
+      let next = this.resolve(w.x + Math.sin(angle) * sp * dt, w.z + Math.cos(angle) * sp * dt, 0.65);
+      if (next.hit) {
+        for (const turn of [0.9, -0.9, 1.7, -1.7, PI]) {
+          const test = this.resolve(w.x + Math.sin(angle + turn) * sp * dt, w.z + Math.cos(angle + turn) * sp * dt, 0.65);
+          if (!test.hit) {
+            angle += turn;
+            next = test;
+            break;
           }
         }
-        w.heading = angLerp(w.heading, angle, 8 * dt);
-        w.x = clamp(next.x, -FOREST_BOUND + 2, FOREST_BOUND - 2);
-        w.z = clamp(next.z, -FOREST_BOUND + 2, FOREST_BOUND - 2);
       }
-      w.ph += dt * (sp > 0 ? 10 : 0);
-      w.moving = sp > 0;
+      w.heading = angLerp(w.heading, angle, 8 * dt);
+      w.x = clamp(next.x, -FOREST_BOUND + 2, FOREST_BOUND - 2);
+      w.z = clamp(next.z, -FOREST_BOUND + 2, FOREST_BOUND - 2);
+    }
+    w.ph += dt * (sp > 0 ? 10 : 0);
+    w.moving = sp > 0;
+    this.updateScares(dt);
+  }
+
+  /** Every so often Path Guppy leaps out of the dark at someone, swings once, and vanishes again. */
+  private updateScares(dt: number) {
+    if (this.overReason || this.bots.some((b) => b.kind === 'guppy')) return;
+    this.scareT -= dt;
+    if (this.scareT > 0) return;
+    this.scareT = this.rand(30, 55);
+    const alive = this.living();
+    if (!alive.length) return;
+    const k = this.pick(alive);
+    // right in front of them, where the camera is looking
+    const a = k.heading + this.rand(-0.5, 0.5);
+    const p = this.safePosition(k.x + Math.sin(a) * 3.6, k.z + Math.cos(a) * 3.6, 0.9);
+    this.bots.push({
+      id: this.id(),
+      kind: 'guppy', behavior: 'scare', x: p.x, z: p.z,
+      hp: GUPPY_HP, maxHp: GUPPY_HP, rad: 0.85, heading: Math.atan2(k.x - p.x, k.z - p.z),
+      bite: 0, stun: 0, kx: 0, kz: 0, chomp: 0, flash: 0, ph: 0,
+      mode: 'lunge', mt: 0, lx: k.id, lz: 0, strafe: 1, hop: 0, moving: false, swing: 0,
+    });
+    this.events.push({ t: 'scare', only: k.id });
+    this.sound('roar');
+    this.sound('squeal');
+    this.addShake(0.9, k);
+    this.floatText(p.x, 3.2, p.z, 'BOO!', 'crit');
+    const herb = this.herb();
+    if (herb && Math.hypot(herb.x - p.x, herb.z - p.z) < 16) {
+      herb.calm = 1.6;
+      this.say('Herb', this.pick(['EEEEK! HIM AGAIN!', 'AAAH! Path Guppy!', 'NOPE NOPE NOPE!']), 2.2);
+    }
+  }
+
+  /** A jump-scare Guppy: a short lunge, one telegraphed swing, then back into the dark. */
+  private updateScareGuppy(b: PathGuppy, dt: number) {
+    b.mt += dt;
+    let moving = false;
+    let swing = 0;
+    const k = this.player(b.lx) ?? this.nearestPlayer(b.x, b.z);
+    if (b.behavior === 'scare') {
+      if (k) {
+        const a = Math.atan2(k.x - b.x, k.z - b.z);
+        b.heading = a;
+        if (Math.hypot(k.x - b.x, k.z - b.z) > 2.2) moving = this.movePathGuppy(b, k.x, k.z, 7, dt);
+      }
+      if (b.mt >= 0.45) {
+        b.behavior = 'windup';
+        b.mt = 0;
+        this.sound('roll');
+      }
+    } else if (b.behavior === 'windup') {
+      const progress = clamp(b.mt / GUPPY_SWING.windup, 0, 1);
+      swing = -2.2 * Math.pow(progress, 0.7);
+      if (progress >= 1) {
+        const x = b.x + Math.sin(b.heading) * GUPPY_SWING.offset;
+        const z = b.z + Math.cos(b.heading) * GUPPY_SWING.offset;
+        b.behavior = 'recovering';
+        b.mt = 0;
+        this.sound('swing');
+        this.fx.slash({ x: b.x, y: 1.07, z: b.z, heading: b.heading, color: 0xf4b962, radius: 2.95, wide: true, tiltZ: -0.32, spin: 8, dur: 0.26, hdr: 2.5 });
+        this.hurtPlayersNear(x, z, GUPPY_SWING.radius, 1.4, 14, b.x, b.z, 11);
+      }
+    } else if (b.behavior === 'recovering') {
+      swing = 0.8 * (1 - clamp(b.mt / 0.57, 0, 1));
+      if (b.mt >= 0.57) this.guppyVanish(b, false);
+    } else {
+      // vanishing: scuttle off into the dark, then gone
+      const away = k ? Math.atan2(b.x - k.x, b.z - k.z) : b.heading;
+      moving = this.movePathGuppy(b, b.x + Math.sin(away) * 10, b.z + Math.cos(away) * 10, 10, dt);
+      if (b.mt >= 1.2) {
+        this.fx.dust(b.x, 0.6, b.z, 10, 0x1a1d22, { spread: 1, speed: 3, rise: 2, size0: 0.8, size1: 2.6, life: 0.9 });
+        this.bots = this.bots.filter((o) => o !== b);
+        return;
+      }
+    }
+    const r = this.resolve(b.x, b.z, b.rad);
+    b.x = clamp(r.x, -FOREST_BOUND + b.rad, FOREST_BOUND - b.rad);
+    b.z = clamp(r.z, -FOREST_BOUND + b.rad, FOREST_BOUND - b.rad);
+    b.ph += moving ? dt * 13 : 0;
+    b.moving = moving;
+    b.swing = swing;
+  }
+
+  /** The jump-scare Guppy retreats; if a pig drove him off, he drops a truffle in his hurry. */
+  private guppyVanish(b: PathGuppy, hit: boolean) {
+    if (b.behavior === 'vanish') return;
+    b.behavior = 'vanish';
+    b.mt = 0;
+    if (hit) {
+      this.spawnTruffle(b.x, b.z, true);
+      this.floatText(b.x, 3, b.z, 'EEP!', 'info');
+      this.say('Path Guppy', this.pick(['This is MY path! …I\'ll be back!', 'You saw nothing!', 'Gah! Not the snout!']), 2.4);
+    } else {
+      this.say('Path Guppy', this.pick(['Stay off my path…', 'Heh heh heh…', 'Boo.']), 2.2);
     }
   }
 

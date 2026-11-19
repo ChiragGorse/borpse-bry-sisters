@@ -44,7 +44,7 @@ import {
   type TurretModel,
   type PotModel,
 } from './models';
-import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN, FINALE, HOG_NAMES, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, SLOT_KEYS, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
+import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN, FINALE, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, SLOT_KEYS, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
 import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
@@ -52,7 +52,7 @@ import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
-import { COIL, FOREST_EXIT, FOREST_HOMES, GUPPY_END, GUPPY_SWING, SPOT, isOnLakeDock } from './layout';
+import { COIL, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
 import { GamepadInput, PAD_ACTIONS, PadMenuRepeat, padActionLabel, padDown, type PadFrame, type PadLayout, type PadMenuCommand } from './gamepad';
 import { MAX_SQUAD, Sim, newPlayer, zapCooldown } from './sim/Sim';
 import type { GameSim } from './sim/gameSim';
@@ -135,7 +135,8 @@ const TODS: Tod[] = [
   { sun: 0xffb8a8, sunI: 2.2, hemiSky: 0xd89aa8, hemiGround: 0x5c3e48, hemiI: 0.82, fog: 0x26121e, fogD: 0.0036, elev: 0.68, stars: 0.95, win: 4.8, turb: 2.4, ray: 1.1, mie: 0.008, mieG: 0.86, gain: 0.028, tint: 0xff8c8c, expo: 1.04 },
   { sun: 0xffb36b, sunI: 5.0, hemiSky: 0xffc8d8, hemiGround: 0x8f6b58, hemiI: 0.62, fog: 0xd88c7e, fogD: 0.0028, elev: 0.16, stars: 0.22, win: 2.6, turb: 6.4, ray: 3.3, mie: 0.014, mieG: 0.9, gain: 1, tint: 0xffe4dc, expo: 0.82 },
 ];
-const FOREST_TOD: Tod = { sun: 0xffe7b0, sunI: 4.2, hemiSky: 0xd8ead1, hemiGround: 0x57694c, hemiI: 0.4, fog: 0x93ad94, fogD: 0.008, elev: 0.85, stars: 0, win: 0.4, turb: 3.6, ray: 1.3, mie: 0.006, mieG: 0.8, gain: 1, tint: 0xf4ffe8, expo: 0.56 };
+/** Slopwood after dark: a cold moon, thick black fog, and only lanterns to see by. */
+const FOREST_TOD: Tod = { sun: 0x8fa3d6, sunI: 0.45, hemiSky: 0x24304a, hemiGround: 0x0c120c, hemiI: 0.22, fog: 0x04060a, fogD: 0.034, elev: 0.75, stars: 0.6, win: 0, turb: 1.4, ray: 0.7, mie: 0.003, mieG: 0.8, gain: 0.02, tint: 0x5a6890, expo: 1.0 };
 const LIT_KEYS = ['sunI', 'hemiI', 'fogD', 'elev', 'win', 'turb', 'ray', 'mie', 'mieG', 'gain', 'expo'] as const;
 type Lit = Record<(typeof LIT_KEYS)[number], number>;
 
@@ -256,6 +257,11 @@ export class Game {
   private players = new Map<number, PlayerView>();
   private openingPigs: KenjiModel[] = [];
   private camLook = new THREE.Vector3();
+  /** Hog Hunt lighting: Herb's lantern and a faint glow round your own pig (off on the farm). */
+  private herbLight = new THREE.PointLight(0xffb04a, 0, 22, 1.6);
+  private pigLight = new THREE.PointLight(0xc8d4ff, 0, 11, 1.6);
+  /** Pairs of eyes blinking in the dark, out past the lantern light. */
+  private eyes: { g: THREE.Group; t: number; life: number }[] = [];
   /** Cutscene-only Path Guppy (an AL kid in the war) and the "back in the lab" memory props. */
   private cutGuppy!: GuppyModel;
   private cutProps!: { group: THREE.Group; screen: THREE.Group; tripod: THREE.Group; lab: THREE.Group; flask: THREE.Mesh; screenMat: THREE.MeshBasicMaterial; brew: THREE.MeshStandardMaterial };
@@ -344,6 +350,20 @@ export class Game {
     this.sun.shadow.bias = -0.001;
     this.sun.shadow.normalBias = 0.09;
     this.scene.add(this.sun, this.sun.target);
+    this.scene.add(this.herbLight, this.pigLight);
+    const eyeMat = glow(0xff3b2a, 2.2);
+    const eyeGeo = new THREE.SphereGeometry(0.07, 6, 4);
+    for (let i = 0; i < 5; i++) {
+      const g = new THREE.Group();
+      for (const sx of [-0.16, 0.16]) {
+        const m = new THREE.Mesh(eyeGeo, eyeMat);
+        m.position.x = sx;
+        g.add(m);
+      }
+      g.visible = false;
+      this.scene.add(g);
+      this.eyes.push({ g, t: 0, life: 0 });
+    }
 
     const sp = new Float32Array(360 * 3);
     for (let i = 0; i < 360; i++) {
@@ -1385,6 +1405,9 @@ export class Game {
       case 'shake':
         if (e.only === undefined || e.only === (this.asAllen ? ALLEN_ID : this.localId)) this.shake = Math.max(this.shake, e.a);
         break;
+      case 'scare':
+        if (e.only === this.localId && !this.asAllen) this.jumpScare();
+        break;
       case 'troutLeap':
         if (this.troutLeap > 0) break;
         this.troutLeap = 0.001;
@@ -1469,6 +1492,7 @@ export class Game {
     else if (this.online && (this.screen === 'shop' || this.screen === 'paused')) this.updateOnlineBackground(dt);
     else this.updateIdle(dt);
     this.updateSky(dt);
+    this.updateForestMood(dt);
     this.updateMusic();
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);
@@ -1639,6 +1663,57 @@ export class Game {
     if (this.mapTimer <= 0) {
       this.mapTimer = 0.1;
       this.drawMinimap();
+    }
+  }
+
+  /** Path Guppy just leapt out at you: a white-red flash, a jolt, and a hard shake. */
+  private jumpScare() {
+    this.shake = Math.max(this.shake, 1.1);
+    const el = document.createElement('div');
+    el.className = 'scare-flash';
+    this.fx.appendChild(el);
+    window.setTimeout(() => el.remove(), 900);
+    navigator.vibrate?.([60, 40, 120]);
+  }
+
+  /** The Hog Hunt after dark: lantern light that follows Herb and your pig, and eyes watching from the trees. */
+  private updateForestMood(dt: number) {
+    const sim = this.sim;
+    const forest = sim.area === 'forest' && (this.screen === 'play' || this.screen === 'paused' || this.screen === 'shop');
+    const herb = forest ? sim.wild.find((w) => w.name === 'Herb') : undefined;
+    const flicker = 1 + Math.sin(this.time * 13) * 0.06 + Math.sin(this.time * 31) * 0.04;
+    this.herbLight.intensity = lerp(this.herbLight.intensity, herb ? 60 * flicker : 0, 1 - Math.exp(-4 * dt));
+    if (herb) this.herbLight.position.set(herb.x + Math.sin(herb.heading) * 0.9, 1.6, herb.z + Math.cos(herb.heading) * 0.9);
+    const k = this.focus();
+    this.pigLight.intensity = lerp(this.pigLight.intensity, forest ? 9 : 0, 1 - Math.exp(-4 * dt));
+    this.pigLight.position.set(k.x, 2.6, k.z);
+    // gold glints where Herb is digging
+    if (forest && herb?.spotted && sim.hunt && Math.random() < dt * 14)
+      this.parts.motes(sim.hunt.tx + (Math.random() - 0.5) * 1.6, 0.4, sim.hunt.tz + (Math.random() - 0.5) * 1.6, 1, 0xffd23f, 1.2, 0.14, 0.9, -1.5, 0, 0.3, 3);
+    for (const e of this.eyes) {
+      if (!forest) {
+        e.g.visible = false;
+        e.life = 0;
+        continue;
+      }
+      if (e.life <= 0) {
+        e.g.visible = false;
+        if (Math.random() < dt * 0.25) {
+          // somewhere out past the lantern light, roughly where you're looking
+          const look = this.camera.getWorldDirection(this.tmp);
+          const a = Math.atan2(look.x, look.z) + (Math.random() - 0.5) * 2.2;
+          const r = 16 + Math.random() * 10;
+          e.g.position.set(k.x + Math.sin(a) * r, 0.6 + Math.random() * 1.6, k.z + Math.cos(a) * r);
+          e.g.lookAt(k.x, 1, k.z);
+          e.life = 2 + Math.random() * 3;
+          e.t = 0;
+        }
+        continue;
+      }
+      e.life -= dt;
+      e.t += dt;
+      // blink now and then
+      e.g.visible = Math.sin(e.t * 2.3) > -0.85;
     }
   }
 
@@ -2368,7 +2443,8 @@ export class Game {
       el.style.display = 'none';
       return;
     }
-    const v = this.tmp.set(forest ? FOREST_EXIT.x : A.x, forest ? 3 : A.y + 3, forest ? FOREST_EXIT.z : A.z).project(this.camera);
+    const hunt = this.sim.hunt;
+    const v = this.tmp.set(forest ? (hunt?.tx ?? FOREST_EXIT.x) : A.x, forest ? 3 : A.y + 3, forest ? (hunt?.tz ?? FOREST_EXIT.z) : A.z).project(this.camera);
     const behind = v.z > 1;
     if (!behind && Math.abs(v.x) < 0.92 && Math.abs(v.y) < 0.9) {
       el.style.display = 'none';
@@ -2590,8 +2666,18 @@ export class Game {
       sim.wild,
       this.wildViews,
       (w) => {
-        const m = makeKenji(WILD_TINTS[w.look], false);
+        const m = makeKenji(w.name === 'Herb' ? 0xc89a74 : WILD_TINTS[w.look], w.name === 'Herb');
         m.root.scale.setScalar(0.95);
+        if (w.name === 'Herb') {
+          // a lantern hanging from his neck
+          const lantern = new THREE.Group();
+          lantern.position.set(0, 0.55, 0.85);
+          lantern.add(new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.32, 0.26), new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.6 })));
+          const flame = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), glow(0xffb04a, 3));
+          flame.position.y = 0.01;
+          lantern.add(flame);
+          m.root.add(lantern);
+        }
         m.root.traverse((c) => {
           c.receiveShadow = false;
         });
@@ -2863,7 +2949,7 @@ export class Game {
       m.anim.rotation.x = b.moving ? 0.14 : b.swing * 0.1;
       m.tail.rotation.y = Math.sin(T * (b.moving ? 10 : 3.5)) * 0.23;
       m.flash.emissive.setRGB(b.flash > 0 ? 0.26 : 0, b.flash > 0 ? 0.19 : 0, b.flash > 0 ? 0.1 : 0);
-      updateHpBar(m.hp, b.hp, b.maxHp, camQ, b.behavior !== 'waiting' && b.behavior !== 'returning');
+      updateHpBar(m.hp, b.hp, b.maxHp, camQ, b.mode !== 'lunge' && b.behavior !== 'waiting' && b.behavior !== 'returning');
       return;
     }
     const m = v.m;
@@ -3368,7 +3454,6 @@ export class Game {
     sim.dirty = false;
     const k = this.me;
     const A = sim.A;
-    const guppy = sim.bots.find((b) => b.kind === 'guppy');
     const ci = Math.min(sim.course, COURSES.length - 1);
     const herd = sim.players.length > 1;
     let tag = '';
@@ -3410,9 +3495,9 @@ export class Game {
     } else if (sim.mode === 'intermission') {
       const left = sim.pickups.filter((p) => p.area === 'farm').length;
       objective =
-        sim.recruitedHogs.size < MAX_SQUAD
-          ? 'Train combos with Trout at the lake, visit Rickley & Kingger, hunt hogs, then ring the bell'
-          : `${left ? `${left} truffles on the farm · ` : ''}Train with Trout, visit Rickley & Kingger, then ring the Bell`;
+        sim.course === 0
+          ? 'Train combos with Trout at the lake, shop around, go on a Hog Hunt with Herb, then ring the bell'
+          : `${left ? `${left} truffles on the farm · ` : ''}Shop, train with Trout, hunt truffles with Herb, then ring the Bell`;
     } else if (W && (!A.active || A.state === 'ko')) objective = 'Take down Earwhen: dodge the cream, punish his wind-ups';
     else if (A.active && A.shielded) objective = 'Allen is invincible! Smash every sauce jar before the timer runs out';
     else if (A.active && alert) objective = 'Hit Allen to interrupt his meal!';
@@ -3420,7 +3505,6 @@ export class Game {
 
     const lv = sim.levels;
     const rushReady = lv.riverrush > 0 && k.rushWindow > 0 && k.chainHits >= 2 && (k.chargeCd <= 0 || (lv.riverrush >= 2 && k.chargeCd <= 2.5));
-    const wild = sim.wild;
 
     this.onHud({
       screen: this.screen,
@@ -3508,23 +3592,16 @@ export class Game {
         : null,
       hunt: sim.hunt
         ? {
-            caught: sim.hunt.caught,
+            found: sim.hunt.found,
             total: sim.hunt.total,
-            spotted: sim.hunt.caught + wild.filter((w) => w.spotted).length,
+            done: sim.hunt.done,
             hint: sim.forestHint,
             listenCd: sim.sniffCd,
-            returnDistance: Math.round(Math.hypot(k.x - FOREST_EXIT.x, k.z - FOREST_EXIT.z)),
+            distance: Math.round(Math.hypot(k.x - sim.hunt.tx, k.z - sim.hunt.tz)),
             location:
-              Math.hypot(k.x - GUPPY_END.x, k.z - GUPPY_END.z) < GUPPY_END.r + 4
-                ? GUPPY_END.name
-                : Math.hypot(k.x - FOREST_EXIT.x, k.z - FOREST_EXIT.z) < 18
-                  ? 'South Trailhead'
-                  : FOREST_HOMES.find((h) => Math.hypot(k.x - h.x, k.z - h.z) < h.r + 5)?.name ?? 'Forest Trail',
-            roster: HOG_NAMES.map((name) => ({
-              name,
-              status: sim.allies.some((a) => a.name === name && a.hp > 0) ? 'joined' : sim.recruitedHogs.has(name) ? 'fallen' : 'wild',
-            })),
-            guppy: guppy && guppy.kind === 'guppy' && guppy.behavior !== 'waiting' && guppy.behavior !== 'returning' ? { hp: guppy.hp, maxHp: guppy.maxHp, status: guppy.behavior } : null,
+              Math.hypot(k.x - FOREST_EXIT.x, k.z - FOREST_EXIT.z) < 18
+                ? 'South Trailhead'
+                : TRUFFLE_SPOTS.find((h) => Math.hypot(k.x - h.x, k.z - h.z) < 14)?.name ?? 'Deep in the woods',
           }
         : null,
       stats: { ...sim.stats },
@@ -3803,15 +3880,13 @@ export class Game {
       ctx.lineWidth = unit;
       ctx.stroke();
     };
-    for (const w of sim.wild) {
-      if (w.spotted) dot(w.x, w.z, 3.6, '#b18c69');
-      else if (w.id === sim.sniffTargetId && sim.sniffTime > 0) {
-        dot(w.x, w.z, 4 + Math.sin(this.time * 6), '#f0b429');
-      }
-    }
+    // the next cache (pulsing gold), and Herb with his lantern
+    if (sim.hunt && !sim.hunt.done) dot(sim.hunt.tx, sim.hunt.tz, 4 + Math.sin(this.time * 6), '#f0b429');
+    for (const w of sim.wild) dot(w.x, w.z, 3.4, '#ffb04a');
     for (const a of sim.allies) if (a.hp > 0) dot(a.x, a.z, 2.5, '#ffb3c7');
     for (const p of sim.pickups) if (p.area === 'forest') dot(p.x, p.z, 2.3, '#f0b429');
-    const guard = sim.bots.find((b) => b.kind === 'guppy');
+    // the jump-scare Guppy stays off the map: you never see him coming
+    const guard = sim.bots.find((b) => b.kind === 'guppy' && b.mode !== 'lunge');
     if (guard && guard.kind === 'guppy') {
       ctx.save();
       ctx.translate(X(guard.x), Z(guard.z));

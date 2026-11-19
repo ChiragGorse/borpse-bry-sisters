@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -82,7 +82,7 @@ export interface Meta {
   repairCount: number;
   truffles: number;
   recruited: string[];
-  hunt: { total: number; caught: number } | null;
+  hunt: { total: number; found: number; tx: number; tz: number; done: boolean } | null;
   forestHint: string;
   overReason: string | null;
   outcome: 'gameover' | 'victory' | null;

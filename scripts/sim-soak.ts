@@ -77,7 +77,7 @@ while (sim.time < minutes * 60 && !sim.outcome) {
     for (const p of sim.players.slice(1)) inputs.set(p.id, { mx: 0, mz: 0, buttons: 0 });
     if (sim.area === 'forest') {
       forest = 'there';
-      log(`herd travelled to the forest (${sim.wild.length} wild hogs, guppy: ${sim.bots.some((b) => b.kind === 'guppy')})`);
+      log(`herd travelled to the forest (guide: ${sim.wild.map((w) => w.name).join(', ')}, ${sim.hunt?.total} caches)`);
     }
   } else if (forest === 'there') {
     forestT += DT;
@@ -87,7 +87,7 @@ while (sim.time < minutes * 60 && !sim.outcome) {
     inputs.set(lead.id, { mx: (target.x - lead.x) / d, mz: (target.z - lead.z) / d, buttons: (near && forestT >= 25 ? BTN.interact : 0) | (forestT % 1 < DT ? BTN.attack : 0) });
     if (sim.area === 'farm') {
       forest = 'done';
-      log(`back on the farm with ${sim.allies.length} recruits`);
+      log(`back on the farm with ${sim.truffles} truffles`);
     }
     if (forestT > 90) throw new Error('herd got stuck in the forest');
   }
