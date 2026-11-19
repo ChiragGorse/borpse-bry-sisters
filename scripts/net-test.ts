@@ -110,7 +110,7 @@ async function allenRoom() {
   const states = new Set<string>();
   const t0 = Date.now();
   let last = Date.now();
-  while (Date.now() - t0 < 25000) {
+  while (Date.now() - t0 < 40000) {
     await new Promise((r) => setTimeout(r, 16));
     const now = Date.now();
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -172,6 +172,7 @@ async function main() {
   let rejected = '';
   ws.onmessage = (e) => (rejected = (JSON.parse(String(e.data)) as ServerMsg & { msg?: string }).msg ?? '');
   await until('an outdated client to be turned away', () => rejected.length > 0);
+  if (!/page is older/.test(rejected)) fail(`an old page should be told to reload, got: ${rejected}`);
   ok(`outdated client rejected: "${rejected}"`);
 
   // play

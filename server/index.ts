@@ -69,9 +69,16 @@ server.on('upgrade', (req, socket) => {
   }
   const conn = acceptWebSocket(req, socket);
   if (!conn) return;
-  if (Number(url.searchParams.get('v')) !== PROTOCOL_VERSION) {
-    conn.send(JSON.stringify({ t: 'error', msg: 'This game page is out of date with the server. Reload the page.' }));
+  const pageVersion = Number(url.searchParams.get('v')) || 0;
+  if (pageVersion !== PROTOCOL_VERSION) {
+    // say which side is behind: a newer page needs a newer server, an older page just needs a reload
+    const msg =
+      pageVersion > PROTOCOL_VERSION
+        ? `This game server is older than the game page (server v${PROTOCOL_VERSION}, page v${pageVersion}). Whoever runs the server: git pull, npm run build && npm run server:build, then restart it.`
+        : `This game page is older than the server (page v${pageVersion}, server v${PROTOCOL_VERSION}). Reload the page.`;
+    conn.send(JSON.stringify({ t: 'error', msg }));
     conn.close(4000, 'version mismatch');
+    log(`turned away a v${pageVersion} page (server is v${PROTOCOL_VERSION})`);
     return;
   }
   const code = normalizeRoom(url.searchParams.get('room') ?? '');
