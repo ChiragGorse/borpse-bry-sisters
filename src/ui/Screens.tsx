@@ -456,10 +456,15 @@ export function OpeningCutscene({
         </p>
         <p className="font-mono text-[10px] font-bold text-paper/70">{step + 1} / {total}</p>
       </div>
-      <div key={step} className="cutscene-caption pop-in">
-        <p className="font-mono text-[10px] font-extrabold uppercase tracking-[0.18em] text-mustard">{scene.who}</p>
-        <h2 className="mt-1 font-display text-2xl leading-none text-paper sm:text-4xl">{scene.title}</h2>
-        <p className="mt-2 max-w-[680px] text-sm font-bold leading-snug text-paper/90 sm:text-base">{scene.text}</p>
+      <div key={step} className="cutscene-caption flex items-start gap-3">
+        <Portrait src={scene.portrait} alt={scene.alt} bg={scene.bg} className="cutscene-portrait mt-1 hidden h-14 w-14 sm:block" />
+        <div className="min-w-0">
+          <p className="cutscene-who font-mono text-[10px] font-extrabold uppercase tracking-[0.18em] text-mustard">{scene.who}</p>
+          <h2 className="cutscene-title mt-1 font-display text-2xl leading-none text-paper sm:text-4xl">{scene.title}</h2>
+          <p className="cutscene-text mt-2 max-w-[680px] text-sm font-bold leading-snug text-paper/90 sm:text-base">{scene.text}</p>
+        </div>
+        {/* how long until the next beat */}
+        <span className="cutscene-progress" aria-hidden="true" />
       </div>
       <button type="button" onClick={onSkip} className="pointer-events-auto cutscene-skip btn absolute right-4 top-12 z-10 bg-paper px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide">
         Skip

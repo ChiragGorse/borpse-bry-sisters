@@ -234,6 +234,8 @@ export class Game {
   /* models */
   private players = new Map<number, PlayerView>();
   private openingPigs: KenjiModel[] = [];
+  /** Opening-story bookkeeping: which beat is playing, which one-shot effects fired, pigs eaten so far. */
+  private cut: { step: number; fired: Set<string>; eaten: number } = { step: -1, fired: new Set(), eaten: 0 };
   private aModel: AllenModel;
   private rick: NpcModel;
   private king: NpcModel;
@@ -337,7 +339,7 @@ export class Game {
     this.localId = this.localPid = this.localSim.addPlayer('Kenji')!.id;
     this.setBots(opts.bots ?? 0);
 
-    this.openingPigs = [makeKenji(0xf0b4a7, true), makeKenji(0xe99b8f, true), makeKenji(0xcfa58f, true)];
+    this.openingPigs = [0xf0b4a7, 0xe99b8f, 0xcfa58f, 0xf2c0a8, 0xd9a0a0].map((t) => makeKenji(t, true));
     for (const pig of this.openingPigs) {
       pig.root.visible = false;
       this.scene.add(pig.root);
@@ -1043,6 +1045,7 @@ export class Game {
     for (const pig of this.openingPigs) pig.root.visible = false;
     this.aModel.root.visible = false;
     this.wasOpening = !!this.sim.opening;
+    this.cut = { step: -1, fired: new Set(), eaten: 0 };
     this.processEvents();
     this.lock();
     this.emit();
@@ -1138,17 +1141,21 @@ export class Game {
     this.kModel.pivot.position.y = 0.75;
     this.kModel.pivot.rotation.set(0, 0, 0);
     this.kModel.head.rotation.set(0, 0, 0);
+    this.kModel.skin.color.setHex(me.tint || 0xf7a8b8);
 
     this.rick.root.position.set(SPOT.rickley.x, 0, SPOT.rickley.z);
     this.rick.root.rotation.set(0, 0, 0);
     this.rick.root.position.y = 0;
     this.rick.armR.rotation.set(0, 0, 0);
     this.rick.armL.rotation.set(0, 0, 0);
+    this.rick.head.rotation.set(0, 0, 0);
+    this.rick.body.position.y = 0;
 
     this.king.root.position.set(SPOT.kingger.x, 0, SPOT.kingger.z);
     this.king.root.rotation.set(0, 0, 0);
     this.king.armR.rotation.set(0, 0, 0);
     this.king.armL.rotation.set(0, 0, 0);
+    this.king.body.position.y = 0;
 
     this.trout.root.position.set(SPOT.trout.x, 0, SPOT.trout.z);
     this.trout.root.rotation.set(0, PI / 2, 0);
@@ -1158,13 +1165,19 @@ export class Game {
     this.aModel.armR.rotation.set(-2.2, 0, 0);
     this.aModel.armL.rotation.set(-0.5, 0, 0);
     this.aModel.head.rotation.set(0, 0, 0);
+    this.aModel.pivot.position.y = 0;
+    this.aModel.pivot.scale.setScalar(1);
+    this.aModel.jaw.scale.y = 1;
+    this.aModel.legL.rotation.x = this.aModel.legR.rotation.x = 0;
 
     for (const pig of this.openingPigs) {
       pig.root.visible = false;
       pig.root.position.set(0, 0, 0);
       pig.root.rotation.set(0, PI, 0);
+      pig.root.scale.setScalar(1);
       pig.pivot.position.y = 0.75;
       pig.pivot.rotation.set(0, 0, 0);
+      pig.head.rotation.set(0, 0, 0);
     }
   }
 
@@ -1560,119 +1573,286 @@ export class Game {
     }
   }
 
+  /**
+   * The opening story, played out on the real farm. Each of its five beats lasts 4.8 s: the camera follows a
+   * keyframed path while the cast acts out the caption, with effects and sounds fired at set moments.
+   */
   private updateOpeningCutscene(dt: number) {
     const opening = this.sim.opening;
     if (!opening) return;
-    const step = opening.step;
-    const p = clamp(1 - opening.t / 4.8, 0, 1);
+    const step = Math.min(opening.step, 4);
+    const ct = clamp(4.8 - opening.t, 0, 4.8); // seconds into this beat
+    const T = this.time;
     const cam = this.camera;
-    let tx = 0, ty = 2, tz = 6, cx = 16, cy = 11, cz = -8;
     const kModel = this.kModel;
-
-    // Keep every permanent actor at its real world location. The cutscene only moves the camera.
-    kModel.root.position.set(SPOT.start.x, 0, SPOT.start.z);
-    kModel.root.rotation.y = PI;
-    kModel.root.visible = true;
-    this.rick.root.position.set(SPOT.rickley.x, 0, SPOT.rickley.z);
-    this.king.root.position.set(SPOT.kingger.x, 0, SPOT.kingger.z);
-    this.trout.root.position.set(SPOT.trout.x, 0, SPOT.trout.z);
-
-    kModel.pivot.position.y = 0.75 + Math.abs(Math.sin(this.time * 7)) * 0.12;
-    kModel.tail.rotation.z = Math.sin(this.time * 9) * 0.45;
+    const A = this.aModel;
+    const pigs = this.openingPigs;
+    if (step !== this.cut.step) {
+      // a new beat: reset everyone to a neutral pose
+      this.cut = { step, fired: new Set(), eaten: 0 };
+      this.restoreCinematicActors();
+      kModel.root.visible = true;
+      kModel.skin.color.setHex(0xf7a8b8);
+    }
+    /** Runs `fn` once, the first frame this beat passes `at` seconds. */
+    const once = (key: string, at: number, fn: () => void) => {
+      if (ct >= at && !this.cut.fired.has(key)) {
+        this.cut.fired.add(key);
+        fn();
+      }
+    };
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    const span = (a: number, b: number) => ease(clamp((ct - a) / (b - a), 0, 1));
+    /** Camera position and look-at point, blended along a list of [time, pos, look] keys. */
+    const shot = (keys: [number, [number, number, number], [number, number, number]][]) => {
+      let i = 0;
+      while (i < keys.length - 2 && ct > keys[i + 1][0]) i++;
+      const [t0, p0, l0] = keys[i];
+      const [t1, p1, l1] = keys[Math.min(i + 1, keys.length - 1)];
+      const f = t1 > t0 ? ease(clamp((ct - t0) / (t1 - t0), 0, 1)) : 1;
+      const mix = (a: number[], b: number[]) => a.map((v, j) => v + (b[j] - v) * f);
+      return { pos: mix(p0, p1), look: mix(l0, l1) };
+    };
+    /** A pig trotting along with legs swinging. */
+    const trot = (m: KenjiModel, x: number, z: number, heading: number, speed: number, ph: number) => {
+      m.root.visible = true;
+      m.root.position.set(x, 0, z);
+      m.root.rotation.y = heading;
+      const sw = Math.sin(T * (6 + speed * 1.4) + ph) * Math.min(0.9, speed * 0.09);
+      m.legs[0].rotation.x = sw;
+      m.legs[1].rotation.x = -sw;
+      m.legs[2].rotation.x = -sw;
+      m.legs[3].rotation.x = sw;
+      m.pivot.position.y = 0.75 + Math.abs(Math.sin(T * (6 + speed * 1.4) + ph)) * (speed > 1 ? 0.12 : 0.03);
+      m.tail.rotation.z = Math.sin(T * 10 + ph) * 0.5;
+    };
+    /** Allen stomping along: legs, arms and a heavy bob. */
+    const stomp = (x: number, z: number, heading: number, walk: number, armsUp = 0) => {
+      A.root.visible = true;
+      A.root.position.set(x, 0, z);
+      A.root.rotation.y = heading;
+      const s = Math.sin(walk);
+      A.legL.rotation.x = s * 0.55;
+      A.legR.rotation.x = -s * 0.55;
+      A.pivot.position.y = Math.abs(s) * 0.14;
+      A.armR.rotation.x = lerp(-0.95 + s * 0.3, -2.9, armsUp);
+      A.armL.rotation.x = lerp(-0.35 - s * 0.3, -2.9, armsUp);
+    };
+    let view = shot([[0, [16, 11, -8], [0, 2, 6]]]);
 
     if (step === 0) {
-      tx = SPOT.gate.x;
-      ty = 3;
-      tz = SPOT.gate.z - 8;
-      cx = 18;
-      cy = 9;
-      cz = 38;
-      this.aModel.root.position.set(0, 0, 52 - p * 6);
-      this.aModel.root.rotation.y = PI;
-      this.aModel.armR.rotation.x = -1.1 - Math.sin(this.time * 6) * 0.32;
-      this.aModel.armL.rotation.x = -0.7 + Math.sin(this.time * 6) * 0.24;
-      const pigPositions = [[-4.5, 43], [2.2, 45], [5.2, 40]];
-      this.openingPigs.forEach((pig, i) => {
-        pig.root.visible = true;
-        const [px, pz] = pigPositions[i];
-        pig.root.position.set(px, 0, pz - p * 5);
-        pig.root.rotation.y = PI + Math.sin(this.time * 3 + i) * 0.18;
-        pig.pivot.position.y = 0.75 + Math.abs(Math.sin(this.time * 8 + i)) * 0.1;
-        pig.tail.rotation.z = Math.sin(this.time * 10 + i) * 0.5;
+      // THE EMPTY PEN: the herd grazes by the gate until Allen bursts through
+      const home: [number, number][] = [[-5, 42], [-1.5, 45], [2.5, 41], [5.5, 44], [0.5, 38.5]];
+      const allenIn = span(1.6, 3.4);
+      const az = lerp(66, 49, allenIn);
+      const roar = span(3.4, 3.8) * (1 - span(4.4, 4.8));
+      stomp(0, az, PI, allenIn < 1 ? T * 7 : 0, roar);
+      A.jaw.scale.y = 1 + roar * 1.6;
+      const flee = span(3.5, 4.8);
+      pigs.forEach((pig, i) => {
+        const [hx, hz] = home[i];
+        // scatter away from Allen, each a slightly different way
+        const ang = Math.atan2(hx * 0.6 + (i - 2) * 0.4, -1);
+        const run = flee * 9;
+        const x = hx + Math.sin(ang) * run;
+        const z = hz + Math.cos(ang) * run;
+        trot(pig, x, z, flee > 0 ? ang : PI + Math.sin(T * 0.7 + i) * 0.6, flee > 0 ? 11 : 0.4, i * 1.7);
+        // grazing: snout down to the grass, until the stomping starts
+        pig.head.rotation.x = flee > 0 ? -0.15 : 0.35 + Math.sin(T * 2.2 + i) * 0.15;
       });
+      if (allenIn > 0 && allenIn < 1 && Math.floor(T * 2.8) !== Math.floor((T - dt) * 2.8)) {
+        this.parts.dust(0 + (Math.floor(T * 2.8) % 2 ? 1 : -1), 0.2, az - 0.5, 5, 0xe2d3b8, { spread: 0.6, speed: 2.5, rise: 1.2, size0: 0.6, size1: 2.0, life: 0.6 });
+        this.shake = Math.max(this.shake, 0.12);
+        this.sfx.play('slam');
+      }
+      once('crash', 1.6, () => {
+        this.parts.dustRing(0, 0.2, 56, 14, 1.5, 0xd9c29e, 9, 2.4, 0.8);
+        this.parts.chunks(0, 2, 56, 14, 0x8a6d4b, 10, 0.3, 0.8);
+      });
+      once('roar', 3.4, () => {
+        this.sfx.play('roar');
+        this.shake = Math.max(this.shake, 0.6);
+        this.parts.shockWall(0, 0.1, az, 0xffb347, 0.8, 7, 0.8, 2.6, 0.5, 5);
+      });
+      once('oink', 3.6, () => this.sfx.play('oink'));
+      view = shot([
+        [0, [22, 13, 28], [0, 1, 43]],
+        [2.0, [14, 6, 32], [0, 1.6, 46]],
+        [4.8, [6, 2.6, 38], [0, 4, 50]],
+      ]);
     } else if (step === 1) {
-      tx = SPOT.rickley.x;
-      ty = 2.4;
-      tz = SPOT.rickley.z;
-      cx = SPOT.rickley.x - 10;
-      cy = 6;
-      cz = SPOT.rickley.z - 13;
-      this.aModel.root.position.set(SPOT.rickley.x + 5, 0, SPOT.rickley.z + 5);
-      this.aModel.root.rotation.y = -0.7;
-      this.aModel.armR.rotation.x = -1.2 - Math.sin(this.time * 5) * 0.3;
-      this.aModel.armL.rotation.x = -0.8 + Math.sin(this.time * 5) * 0.24;
-      this.rick.root.rotation.y = 0.8;
-      this.rick.armR.rotation.z = -0.35 - Math.sin(this.time * 3) * 0.18;
-      this.rick.armL.rotation.z = 0.35 + Math.sin(this.time * 3) * 0.18;
-      this.openingPigs.forEach((pig, i) => {
-        pig.root.visible = i === 0;
-        pig.root.position.set(SPOT.rickley.x + 3.1, 0, SPOT.rickley.z + 1.2);
-        pig.root.rotation.y = PI + Math.sin(this.time * 2) * 0.12;
-        pig.pivot.position.y = 0.75 + Math.abs(Math.sin(this.time * 6)) * 0.09;
+      // NO PIG LEFT BEHIND: Allen plucks the pigs up one by one and swallows them whole
+      const cx = 0;
+      const cz = 42;
+      const eatEvery = 0.85;
+      const belly = 1 + this.cut.eaten * 0.06;
+      A.root.visible = true;
+      A.root.position.set(cx, 0, cz);
+      A.root.rotation.y = PI + Math.sin(T * 1.6) * 0.7;
+      A.pivot.scale.set(belly, 1 / Math.sqrt(belly), belly);
+      A.pivot.position.y = Math.abs(Math.sin(T * 4)) * 0.05;
+      const grab = (ct % eatEvery) / eatEvery;
+      A.armR.rotation.x = -1.2 - Math.sin(grab * PI) * 1.6;
+      A.armL.rotation.x = -0.6 - Math.sin(grab * PI + 1) * 0.6;
+      A.jaw.scale.y = 1 + Math.abs(Math.sin(T * 12)) * 1.4;
+      pigs.forEach((pig, i) => {
+        const at = 0.3 + i * eatEvery;
+        const t = (ct - at) / 0.5;
+        if (t >= 1) {
+          pig.root.visible = false;
+          return;
+        }
+        // running laps round him until it's this one's turn
+        const lap = T * 0.9 + (i * TAU) / pigs.length;
+        const rx = cx + Math.sin(lap) * 7;
+        const rz = cz + Math.cos(lap) * 7;
+        if (t < 0) {
+          trot(pig, rx, rz, lap + PI / 2, 10, i);
+          pig.root.scale.setScalar(1);
+        } else {
+          // up in an arc into his mouth, shrinking as it goes
+          const mx = cx + Math.sin(A.root.rotation.y) * 1.2;
+          const mz = cz + Math.cos(A.root.rotation.y) * 1.2;
+          pig.root.visible = true;
+          pig.root.position.set(lerp(rx, mx, t), Math.sin(t * PI) * 3 + t * 4.3, lerp(rz, mz, t));
+          pig.root.rotation.set(t * 5, lap, t * 3);
+          pig.root.scale.setScalar(1 - t * 0.7);
+          for (const leg of pig.legs) leg.rotation.x = Math.sin(T * 30 + i) * 0.9;
+        }
+        once(`grab${i}`, at, () => this.sfx.play('oink'));
+        once(`gulp${i}`, at + 0.5, () => {
+          this.cut.eaten++;
+          this.sfx.play('chomp');
+          this.parts.emit(cx, 4.4, cz - 1, 10, 0xf7a8b8, 5, 0.22, 0.6);
+          this.shake = Math.max(this.shake, 0.2);
+        });
       });
+      once('burp', 4.5, () => {
+        this.sfx.play('pop');
+        this.parts.motes(cx, 4.6, cz - 1.2, 14, 0xd8f0c8, 2.5, 0.3, 1.2, -2, 3, 0.6, 2.6);
+      });
+      const orbit = 0.4 + ct * 0.28;
+      view = {
+        pos: [cx + Math.sin(orbit) * -13, 6 + Math.sin(ct * 0.6) * 1.2, cz + Math.cos(orbit) * -13],
+        look: [cx, 3.6, cz],
+      };
     } else if (step === 2) {
-      tx = SPOT.rickley.x;
-      ty = 2.4;
-      tz = SPOT.rickley.z;
-      cx = SPOT.rickley.x - 9;
-      cy = 6;
-      cz = SPOT.rickley.z - 13;
-      this.rick.root.rotation.y = 0.8;
-      this.rick.armR.rotation.z = -0.35 - Math.sin(this.time * 3) * 0.18;
-      this.rick.armL.rotation.z = 0.35 + Math.sin(this.time * 3) * 0.18;
-      kModel.root.position.set(SPOT.rickley.x - 1.8, 0, SPOT.rickley.z + 3);
-      kModel.root.rotation.y = 0.3;
-      this.openingPigs.forEach((pig, i) => {
-        pig.root.visible = i === 0;
-        pig.root.position.set(SPOT.rickley.x + 3.1, 0, SPOT.rickley.z + 1.2);
-        pig.root.rotation.y = PI;
-      });
+      // BROKE, BUT NOT BEATEN: Rickley counts his last coins; Kenji trots up
+      const R = this.rick;
+      const rx = SPOT.rickley.x;
+      const rz = SPOT.rickley.z;
+      const meet = span(2.9, 3.6);
+      R.root.rotation.y = lerp(0.9, -0.25, meet);
+      R.head.rotation.x = lerp(0.45, -0.1, meet) + Math.sin(T * 1.4) * 0.04;
+      R.body.position.y = -meet * 0.35 + Math.sin(T * 1.3) * 0.02;
+      R.armL.rotation.x = lerp(-0.9, -0.2, meet);
+      R.armR.rotation.x = meet > 0 ? -1.3 + Math.sin(T * 7) * 0.25 : -0.9 + Math.sin(T * 5) * 0.05;
+      for (let i = 0; i < 4; i++) {
+        once(`coin${i}`, 0.3 + i * 0.55, () => {
+          this.sfx.play('truffle');
+          this.parts.sparks(rx + 0.6, 1.6, rz + 0.9, 4, 0xffd23f, 2, 0.1, 0.5, { up: 1, grav: 6, hdr: 3 });
+        });
+      }
+      const walk = span(0.6, 2.8);
+      const kx = lerp(rx - 9, rx - 1.6, walk);
+      const kz = lerp(rz + 7, rz + 2.6, walk);
+      trot(kModel, kx, kz, walk < 1 ? Math.atan2(rx - 1.6 - (rx - 9), rz + 2.6 - (rz + 7)) : lerp(0.6, 2.4, meet), walk > 0 && walk < 1 ? 8 : 0, 0);
+      kModel.head.rotation.x = -0.25 * meet;
+      kModel.tail.rotation.z = Math.sin(T * (meet > 0 ? 18 : 9)) * 0.6;
+      once('hello', 3.1, () => this.sfx.play('oink'));
+      view = shot([
+        [0, [rx - 11, 7, rz - 13], [rx, 2.2, rz]],
+        [2.6, [rx - 8, 4.2, rz - 9], [rx - 0.6, 1.8, rz + 1]],
+        [4.8, [rx - 5.4, 2.6, rz - 5.6], [rx - 0.8, 1.4, rz + 1.6]],
+      ]);
     } else if (step === 3) {
-      tx = SPOT.kingger.x;
-      ty = 3;
-      tz = SPOT.kingger.z;
-      cx = SPOT.kingger.x - 11;
-      cy = 8;
-      cz = SPOT.kingger.z - 12;
-      this.king.root.rotation.y = -0.55;
-      this.king.armR.rotation.z = -0.9 - Math.sin(this.time * 6) * 0.35;
-      this.king.armL.rotation.z = 0.12;
-      kModel.root.position.set(SPOT.kingger.x - 2.2, 0, SPOT.kingger.z - 4);
-      kModel.root.rotation.y = -0.6;
-      this.openingPigs.forEach((pig) => {
-        pig.root.visible = false;
+      // A VERY QUESTIONABLE RECRUIT: Kingger's coil crackles, then gives Kenji a jolt
+      const K = this.king;
+      const kx = SPOT.kingger.x;
+      const kz = SPOT.kingger.z;
+      K.root.rotation.y = -0.55 + Math.sin(T * 3) * 0.25;
+      K.body.position.y = Math.abs(Math.sin(T * 6)) * 0.18;
+      K.armR.rotation.x = -2.7 + Math.sin(T * 8) * 0.4;
+      K.armL.rotation.x = -2.7 - Math.sin(T * 8) * 0.4;
+      if (K.spin) K.spin.rotation.y += dt * 40;
+      this.sim.kingCast = 0;
+      // Kenji stands off to Kingger's side, so the camera sees both of them
+      const px = kx + 2.4;
+      const pz = kz - 3.4;
+      const zapped = ct >= 2.2;
+      const hop = zapped ? Math.max(0, Math.sin(clamp((ct - 2.2) / 0.7, 0, 1) * PI)) * 1.8 : 0;
+      trot(kModel, px, pz, -2.3 + (zapped ? Math.sin(T * 25) * 0.3 * (1 - span(2.2, 3.4)) : 0), 0, 0);
+      kModel.root.position.y = hop;
+      kModel.pivot.rotation.z = zapped ? Math.sin(T * 40) * 0.2 * (1 - span(2.4, 3.6)) : 0;
+      const glowing = zapped ? 1 - span(2.3, 4.2) : 0;
+      kModel.skin.color.setHex(0xf7a8b8).lerp(this.tmpC.setHex(0x9ff6ff), glowing);
+      // ambient arcs off the coil, faster as it charges
+      const rate = zapped ? 6 : 3 + ct * 3;
+      if (Math.floor(T * rate) !== Math.floor((T - dt) * rate)) {
+        const a = Math.random() * TAU;
+        this.parts.lightning(COIL.x, COIL.y + 0.5, COIL.z, COIL.x + Math.cos(a) * 3, COIL.y + 2 + Math.random() * 3, COIL.z + Math.sin(a) * 3, 0x7df9ff, 0.05, 0.18);
+        if (Math.random() < 0.5) this.sfx.play('zap');
+      }
+      once('bolt', 2.2, () => {
+        this.sfx.play('thunder');
+        this.parts.lightning(COIL.x, COIL.y + 0.5, COIL.z, px, 1.1, pz, 0x62f4ff, 0.12, 0.45);
+        this.parts.lightning(px + 0.5, 14, pz, px, 1, pz, 0xc8feff, 0.1, 0.4);
+        this.parts.hitBurst(px, 1.1, pz, 0x5ff2ff, 1.8);
+        this.parts.flash(px, 1.6, pz, 0x5ff2ff, 14, 0.3, 14);
+        this.shake = Math.max(this.shake, 0.7);
       });
-      if (Math.random() < dt * 38) this.parts.sparks(SPOT.kingger.x - 0.5, 3.5, SPOT.kingger.z - 0.2, 1, 0x62f4ff, 6.5, 0.13, 0.24, { grav: 1, hdr: 4.2, altColor: 0xffffff });
+      once('squee', 2.35, () => this.sfx.play('squeal'));
+      if (glowing > 0 && Math.random() < dt * 30) this.parts.sparks(px, 1 + hop, pz, 1, 0x62f4ff, 5, 0.12, 0.22, { grav: 2, hdr: 4.2, altColor: 0xffffff });
+      view = shot([
+        [0, [kx - 14, 9, kz - 15], [kx + 0.5, 3.4, kz]],
+        [2.0, [kx - 7, 4.5, kz - 11], [kx + 1, 2, kz - 1.5]],
+        [2.6, [kx - 5, 3.2, kz - 10], [px - 0.4, 1.4, pz]],
+        [4.8, [kx - 6.5, 3.8, kz - 12], [kx + 1.2, 1.8, kz - 1.5]],
+      ]);
     } else {
-      tx = 0;
-      ty = 2.2;
-      tz = 0;
-      cx = 24;
-      cy = 14;
-      cz = -28;
-      kModel.root.position.set(SPOT.start.x, 0, SPOT.start.z);
-      kModel.root.rotation.y = PI;
-      this.rick.root.rotation.y = 0.2;
-      this.king.root.rotation.y = -0.2;
-      this.aModel.root.position.set(0, 0, 28);
-      this.aModel.root.rotation.y = PI;
-      this.openingPigs.forEach((pig) => {
-        pig.root.visible = false;
+      // PROTECT THE LAST PIG: the three of them line up; Allen watches from the gate
+      const R = this.rick;
+      const K = this.king;
+      const lx = 0;
+      const lz = 14;
+      R.root.position.set(lx - 3, 0, lz + 1.6);
+      R.root.rotation.y = PI + 0.25;
+      K.root.position.set(lx + 3, 0, lz + 1.6);
+      K.root.rotation.y = PI - 0.25;
+      const pose = span(1.2, 1.8);
+      R.armR.rotation.x = lerp(-0.3, -2.8, pose) + Math.sin(T * 3) * 0.05;
+      K.armR.rotation.x = lerp(-0.3, -2.9, pose) + Math.sin(T * 3 + 1) * 0.05;
+      R.body.position.y = K.body.position.y = Math.abs(Math.sin(T * 2.4)) * 0.04;
+      if (K.spin) K.spin.rotation.y += dt * 25;
+      trot(kModel, lx, lz, PI, 0, 0);
+      kModel.root.position.y = Math.max(0, Math.sin(T * 7)) * 0.25 * pose;
+      kModel.tail.rotation.z = Math.sin(T * 14) * 0.6;
+      // Allen, small and far away, tying on his bib
+      stomp(0, 52, PI, 0, 0);
+      A.armR.rotation.x = -2.2 + Math.sin(T * 4) * 0.4;
+      A.armL.rotation.x = -2.0 - Math.sin(T * 4) * 0.4;
+      once('pose', 1.3, () => {
+        this.sfx.play('bell');
+        this.parts.sparks(lx, 2, lz, 30, 0xffd23f, 9, 0.18, 0.8, { up: 1, grav: 10, hdr: 4, altColor: 0xff8fb0 });
+        this.parts.shockWall(lx, 0.1, lz, 0xffc93c, 0.6, 6, 0.6, 2.2, 0.5, 4);
       });
+      once('oink', 1.5, () => this.sfx.play('oink'));
+      view = shot([
+        [0, [lx + 0.4, 1.3, lz - 2.6], [lx, 1.1, lz]],
+        [1.6, [lx + 2.5, 2.4, lz - 7], [lx, 1.8, lz + 1]],
+        // end low and close enough that the three of them sit above the caption, Allen framed at the gate
+        [4.8, [lx + 2.5, 3.0, lz - 11], [0, 1.2, lz + 20]],
+      ]);
     }
 
-    cam.position.lerp(this.tmp.set(cx, cy, cz), 1 - Math.exp(-3.5 * dt));
-    cam.lookAt(tx, ty, tz);
+    // follow the shot closely (a light smoothing hides frame hitches); shake comes on top
+    cam.position.lerp(this.tmp.set(view.pos[0], view.pos[1], view.pos[2]), 1 - Math.exp(-10 * dt));
+    if (this.shake > 0 && !this.reduceMotion) {
+      cam.position.x += (Math.random() - 0.5) * this.shake * 0.6;
+      cam.position.y += (Math.random() - 0.5) * this.shake * 0.6;
+      this.shake = Math.max(0, this.shake - dt * 2.4);
+    }
+    cam.lookAt(view.look[0], view.look[1], view.look[2]);
   }
 
   private updateCamera(dt: number) {

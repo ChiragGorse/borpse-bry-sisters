@@ -328,6 +328,89 @@ body {
   backdrop-filter: blur(3px);
   box-shadow: 4px 4px 0 rgb(42 26 18 / 0.55);
 }
+.cutscene-bar-top {
+  animation: bar-down 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.cutscene-bar-bottom {
+  animation: bar-up 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes bar-down {
+  from {
+    transform: translateY(-100%);
+  }
+}
+@keyframes bar-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+.cutscene-caption {
+  animation: caption-in 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+.cutscene-portrait {
+  animation: portrait-pop 0.6s 0.1s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.cutscene-who {
+  animation: fade-up 0.4s 0.15s ease-out both;
+}
+.cutscene-title {
+  animation: title-slam 0.5s 0.2s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.cutscene-text {
+  animation: fade-up 0.6s 0.55s ease-out both;
+}
+.cutscene-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  transform-origin: left;
+  background: var(--color-mustard);
+  /* one beat of the opening story lasts 4.8 s */
+  animation: beat 4.8s linear both;
+}
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+}
+@keyframes portrait-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3) rotate(-20deg);
+  }
+}
+@keyframes title-slam {
+  from {
+    opacity: 0;
+    transform: scale(1.35);
+    letter-spacing: 0.08em;
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes beat {
+  from {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cutscene-bar-top,
+  .cutscene-bar-bottom,
+  .cutscene-caption,
+  .cutscene-portrait,
+  .cutscene-who,
+  .cutscene-title,
+  .cutscene-text {
+    animation: none;
+  }
+}
 .cutscene-skip {
   pointer-events: auto;
   min-height: 34px;
