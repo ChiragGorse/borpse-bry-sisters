@@ -5,7 +5,7 @@
 import { Sim, MAX_PLAYERS } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { UPGRADES } from '../src/game/data';
-import { POSE_KEYS, type Pose, type PlayerInput, type SimEvent, type Strike, type StrikeFn } from '../src/game/sim/types';
+import { ALLEN_ID, POSE_KEYS, type Pose, type PlayerInput, type SimEvent, type Strike, type StrikeFn } from '../src/game/sim/types';
 import { encodeHot, encodeMeta, encodeStats } from '../src/game/net/encode';
 import { MAX_NAME, PROTOCOL_VERSION, TICK_HZ, unpack, type ClientMsg, type LobbyPlayer, type Relayed, type ServerMsg } from '../src/game/net/protocol';
 import { headlessMaps } from './maps';
@@ -36,6 +36,11 @@ export class Room {
   private playing = false;
   private botCount = 0;
   private botIds: number[] = [];
+  /** The person playing Allen (0 = the AI), and their latest controls. */
+  private allenPid = 0;
+  private allenInput = { mx: 0, mz: 0 };
+  private allenButtons = 0;
+  private allenLast = 0;
   private brain = new BotBrain();
   private tick = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -95,6 +100,11 @@ export class Room {
     if (!this.members.includes(m)) return;
     this.members = this.members.filter((o) => o !== m);
     this.sim.removePlayer(m.pid);
+    if (this.allenPid === m.pid) {
+      // Allen's player left: the AI takes him back
+      this.allenPid = 0;
+      this.sim.setAllenPlayer(false);
+    }
     this.log(`${m.name} left: ${m.conn.reason} (${this.members.length} online)`);
     if (!this.members.length) {
       this.stop();
@@ -162,7 +172,24 @@ export class Room {
         }
         break;
       }
+      case 'ain': {
+        if (m.pid !== this.allenPid) break;
+        const mx = Number(msg.mx) || 0;
+        const mz = Number(msg.mz) || 0;
+        const l = Math.hypot(mx, mz);
+        this.allenInput = l > 1 ? { mx: mx / l, mz: mz / l } : { mx, mz };
+        this.allenButtons |= (Number(msg.b) | 0) & 0x1ff;
+        this.allenLast = now;
+        break;
+      }
+      case 'allen':
+        if (isHost && !this.playing) this.setAllen(Number(msg.pid) || 0);
+        break;
       case 'start':
+        if (isHost && !this.playing && this.sim.players.length === 0) {
+          this.sendTo(m.conn, { t: 'error', msg: 'Allen needs someone to chase: add a bot pig or wait for another player.' });
+          break;
+        }
         if (isHost && !this.playing) {
           this.playing = true;
           this.sim.start({ opening: false });
@@ -189,6 +216,24 @@ export class Room {
         if (isHost && !this.playing) this.setBots(msg.n);
         break;
     }
+  }
+
+  /** Puts a person in charge of Allen (their pig leaves the herd), or hands him back to the AI with 0. */
+  private setAllen(pid: number) {
+    const prev = this.members.find((o) => o.pid === this.allenPid);
+    if (prev) {
+      // the old Allen gets their pig back, with the same id
+      this.sim.addPlayer(prev.name, prev.pid);
+      this.sim.setClientDriven(prev.pid);
+    }
+    const next = this.members.find((o) => o.pid === pid);
+    this.allenPid = next ? next.pid : 0;
+    if (next) this.sim.removePlayer(next.pid);
+    this.sim.setAllenPlayer(!!next);
+    this.lastMeta = '';
+    this.broadcastLobby();
+    this.broadcastState([]);
+    this.log(next ? `${next.name} will play Allen` : 'Allen is back to the AI');
   }
 
   /* ───────── simulation ───────── */
@@ -221,6 +266,11 @@ export class Room {
     for (const id of this.botIds) {
       const p = this.sim.player(id);
       if (p) inputs.set(id, this.brain.think(this.sim, p, DT));
+    }
+    if (this.allenPid) {
+      const stale = Date.now() - this.allenLast > 300;
+      inputs.set(ALLEN_ID, { mx: stale ? 0 : this.allenInput.mx, mz: stale ? 0 : this.allenInput.mz, buttons: this.allenButtons });
+      this.allenButtons = 0;
     }
     this.sim.step(DT, inputs);
     this.broadcastState(this.sim.drainEvents());
@@ -255,7 +305,8 @@ export class Room {
 
   private broadcastLobby() {
     const players: LobbyPlayer[] = this.sim.players.map((p) => ({ id: p.id, name: p.name, tint: p.tint, bot: this.botIds.includes(p.id) }));
-    const msg: ServerMsg = { t: 'lobby', room: this.code, host: this.hostPid, playing: this.playing, bots: this.botCount, players };
+    const allenName = this.members.find((o) => o.pid === this.allenPid)?.name ?? '';
+    const msg: ServerMsg = { t: 'lobby', room: this.code, host: this.hostPid, playing: this.playing, bots: this.botCount, players, allen: this.allenPid, allenName };
     const text = JSON.stringify(msg);
     for (const m of this.members) m.conn.send(text);
   }

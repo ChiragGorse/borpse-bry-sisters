@@ -11,6 +11,9 @@ export interface NetStatus {
   host: boolean;
   players: LobbyPlayer[];
   bots: number;
+  /** Id of the person playing Allen (0 = the AI), and their name. */
+  allen: number;
+  allenName: string;
   error: string | null;
 }
 
@@ -96,7 +99,7 @@ export class NetClient {
     this.maps = maps;
     this.onStatus = onStatus;
     this.onSim = onSim;
-    this.status = { state: 'connecting', room, pid: 0, host: false, players: [], bots: 0, error: null };
+    this.status = { state: 'connecting', room, pid: 0, host: false, players: [], bots: 0, allen: 0, allenName: '', error: null };
     const qs = new URLSearchParams({ room, name, v: String(PROTOCOL_VERSION) });
     this.ws = new WebSocket(`${url}?${qs}`);
     this.ws.onmessage = (e) => this.onMessage(e.data);
@@ -134,7 +137,8 @@ export class NetClient {
         this.onSim(this.sim);
         break;
       case 'lobby':
-        this.update({ room: msg.room, host: msg.host === this.status.pid, players: msg.players, bots: msg.bots, state: msg.playing ? 'playing' : 'lobby' });
+        if (this.sim) this.sim.allenMode = msg.allen === this.status.pid;
+        this.update({ room: msg.room, host: msg.host === this.status.pid, players: msg.players, bots: msg.bots, allen: msg.allen, allenName: msg.allenName, state: msg.playing ? 'playing' : 'lobby' });
         break;
       case 's':
         this.sim?.receive(msg);

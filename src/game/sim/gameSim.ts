@@ -57,6 +57,9 @@ export interface GameSim {
   turretYaw: number;
   hitstop: number;
   dirty: boolean;
+  allenPlayer: boolean;
+  allenPrompt: string | null;
+  allenBreak: number;
 
   player(id: number): Player | undefined;
   living(): Player[];

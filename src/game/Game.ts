@@ -47,13 +47,13 @@ import { CombatVfx } from './vfx';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
 import { COIL, FOREST_EXIT, FOREST_HOMES, GUPPY_END, GUPPY_SWING, SPOT, isOnLakeDock } from './layout';
-import { GamepadInput, PAD_ACTIONS, PadMenuRepeat, padDown, type PadFrame, type PadLayout, type PadMenuCommand } from './gamepad';
+import { GamepadInput, PAD_ACTIONS, PadMenuRepeat, padActionLabel, padDown, type PadFrame, type PadLayout, type PadMenuCommand } from './gamepad';
 import { MAX_SQUAD, Sim, newPlayer, zapCooldown } from './sim/Sim';
 import type { GameSim } from './sim/gameSim';
 import { NetClient, defaultServerUrl, type NetStatus } from './net/NetClient';
 import type { NetSim } from './net/NetSim';
 import { BotBrain } from './sim/botBrain';
-import { BTN, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
+import { ALLEN_ID, BTN, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -219,6 +219,8 @@ export class Game {
   private localPid: number;
   private net: NetClient | null = null;
   private onNet?: (s: NetStatus | null) => void;
+  /** Offline: whether this browser plays a pig (Kenji) or Allen against the bot pigs. */
+  private role: 'pig' | 'allen' = 'pig';
   /** Placeholder pig while an online game hasn't sent ours yet. */
   private ghost = newPlayer(0, '', 0xf7a8b8);
   private ghostModel = makeKenji();
@@ -409,6 +411,8 @@ export class Game {
 
   /** The pig this browser controls. */
   private get me(): Player {
+    // playing Allen there is no pig of ours; the placeholder keeps pig-only code quiet
+    if (this.asAllen) return this.ghost;
     return this.sim.player(this.localId) ?? this.sim.players[0] ?? this.ghost;
   }
 
@@ -430,6 +434,37 @@ export class Game {
         return { colliders: this.forest.colliders };
       },
     };
+  }
+
+  /** This browser plays Allen (chosen offline, or picked by the host online). */
+  private get asAllen(): boolean {
+    if (this.online) return !!this.net && this.net.status.allen === this.localId && this.localId > 0;
+    return this.role === 'allen';
+  }
+
+  /** Who the camera follows: your pig, or Allen (or, while he's away between courses, the herd). */
+  private focus(): { x: number; y: number; z: number } {
+    if (!this.asAllen) return this.me;
+    const A = this.sim.A;
+    if (A.active) return A;
+    return this.sim.living()[0] ?? this.sim.players[0] ?? { x: 0, y: 0, z: 6 };
+  }
+
+  /** Offline: play as a pig, or as Allen against the bot pigs (Kenji's pig leaves the herd). */
+  setRole(role: 'pig' | 'allen') {
+    if (this.online || this.screen !== 'title' || role === this.role) return;
+    this.role = role;
+    if (role === 'allen') {
+      this.localSim.removePlayer(this.localPid);
+    } else {
+      const p = this.localSim.addPlayer('Kenji', this.localPid);
+      if (p) {
+        // Kenji is always the first pig
+        this.localSim.players = [p, ...this.localSim.players.filter((o) => o !== p)];
+      }
+    }
+    this.syncPlayers(0);
+    this.emit();
   }
 
   private get online(): boolean {
@@ -455,6 +490,11 @@ export class Game {
       (s) => this.onNetStatus(s),
       (sim) => this.useSim(sim, sim.localId),
     );
+  }
+
+  /** Host, in an online lobby: who plays Allen (a player id, or 0 for the AI). */
+  chooseAllen(pid: number) {
+    this.net?.send({ t: 'allen', pid });
   }
 
   /** Drops the connection and goes back to playing on this device. */
@@ -994,7 +1034,9 @@ export class Game {
       else (this.sim as NetSim).restart();
       return;
     }
-    this.sim.start();
+    // the opening story is Kenji's; a person playing Allen goes straight in
+    this.localSim.setAllenPlayer(this.role === 'allen');
+    this.sim.start({ opening: this.role === 'pig' && this.localSim.players.length <= 1 });
     this.restoreCinematicActors();
     this.controllerDisconnected = false;
     this.screen = 'play';
@@ -1168,13 +1210,13 @@ export class Game {
         (this.parts[e.m] as (...a: unknown[]) => void)(...e.a);
         break;
       case 'sfx':
-        if (e.only === undefined || e.only === this.localId) this.sfx.play(e.n);
+        if (e.only === undefined || e.only === (this.asAllen ? ALLEN_ID : this.localId)) this.sfx.play(e.n);
         break;
       case 'text':
         this.floatText(e.x, e.y, e.z, e.s, e.c);
         break;
       case 'shake':
-        if (e.only === undefined || e.only === this.localId) this.shake = Math.max(this.shake, e.a);
+        if (e.only === undefined || e.only === (this.asAllen ? ALLEN_ID : this.localId)) this.shake = Math.max(this.shake, e.a);
         break;
       case 'troutLeap':
         if (this.troutLeap > 0) break;
@@ -1209,6 +1251,11 @@ export class Game {
         break;
       }
       case 'lookAt': {
+        if (this.asAllen) {
+          // playing Allen, the camera settles in behind him as he comes through the gate
+          this.autoYaw = { to: this.sim.A.heading + PI, t: 1.3 };
+          break;
+        }
         const me = this.me;
         this.autoYaw = { to: Math.atan2(-(e.x - me.x), -(e.z - me.z)), t: 1.3 };
         break;
@@ -1296,7 +1343,7 @@ export class Game {
   /** Inputs for every pig this browser drives: the local player plus any stand-in bots. */
   private gatherInputs(dt: number): Map<number, PlayerInput> {
     const inputs = new Map<number, PlayerInput>();
-    inputs.set(this.localId, this.localInput());
+    inputs.set(this.asAllen ? ALLEN_ID : this.localId, this.localInput());
     if (this.brain && !this.online) {
       for (const id of this.botIds) {
         const p = this.sim.player(id);
@@ -1441,8 +1488,8 @@ export class Game {
     this.world.cloudMat.emissiveIntensity = L.sunI * 0.2;
     const ce = Math.cos(L.elev);
     const dir = this.sunDir.set(ce * Math.sin(SUN_AZ), Math.sin(L.elev), ce * Math.cos(SUN_AZ));
-    const fx = this.screen === 'title' ? 0 : this.me.x;
-    const fz = this.screen === 'title' ? 6 : this.me.z;
+    const fx = this.screen === 'title' ? 0 : this.focus().x;
+    const fz = this.screen === 'title' ? 6 : this.focus().z;
     this.sun.position.set(fx + dir.x * 100, dir.y * 100, fz + dir.z * 100);
     this.sun.target.position.set(fx, 0, fz);
     const half = this.screen === 'title' ? 62 : 38;
@@ -1629,11 +1676,13 @@ export class Game {
   }
 
   private updateCamera(dt: number) {
-    const k = this.me;
+    const k = this.focus();
     const A = this.sim.A;
-    this.camTarget.lerp(this.tmp.set(k.x, 1.5 + k.y * 0.6, k.z), 1 - Math.exp(-12 * dt));
-    let want = 10.5;
-    if (A.active && this.screen === 'play') want += clamp((Math.hypot(A.x - k.x, A.z - k.z) - 6) * 0.14, 0, 4);
+    const big = this.asAllen && A.active;
+    // Allen is three times a pig's size: look from higher up and further back
+    this.camTarget.lerp(this.tmp.set(k.x, (big ? 3.2 : 1.5) + k.y * 0.6, k.z), 1 - Math.exp(-12 * dt));
+    let want = big ? 16 : 10.5;
+    if (A.active && !big && this.screen === 'play') want += clamp((Math.hypot(A.x - k.x, A.z - k.z) - 6) * 0.14, 0, 4);
     this.camDist = lerp(this.camDist, want, 1 - Math.exp(-3 * dt));
     const cp = Math.cos(this.pitch);
     const cam = this.camera;
@@ -2563,7 +2612,13 @@ export class Game {
       else tag = 'Pork belly enthusiast';
     }
     let objective = '';
-    if (herd && k.action === 'dead' && sim.living().length > 0) {
+    const allen = this.asAllen;
+    if (allen) {
+      const standing = sim.living().length;
+      objective = A.active
+        ? `Eat the farm or flatten every pig · ${standing}/${sim.players.length} pigs standing`
+        : `Course ${sim.course + 1} starts in ${Math.max(0, Math.ceil(sim.allenBreak))}s, or sooner if a pig rings the bell`;
+    } else if (herd && k.action === 'dead' && sim.living().length > 0) {
       objective = "You're knocked out — the herd fights on. You'll get back up when the course ends";
     } else if (sim.area === 'forest') {
       objective = sim.forestHint;
@@ -2622,7 +2677,7 @@ export class Game {
         guarding: A.state === 'guard',
         exposed: A.exposed > 0,
       },
-      prompt: k.prompt,
+      prompt: this.asAllen ? sim.allenPrompt : k.prompt,
       subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : null,
       opening: sim.opening ? { step: sim.opening.step, total: 5 } : null,
       banner: sim.banner ? { title: sim.banner.title, sub: sim.banner.sub, key: sim.banner.key } : null,
@@ -2639,7 +2694,8 @@ export class Game {
       allies: sim.livingAlliesCount(),
       alliesMax: MAX_SQUAD,
       fallen: sim.stats.fallen,
-      party: herd
+      allen: allen ? this.allenHud() : null,
+      party: herd || allen
         ? sim.players.map((p) => ({ id: p.id, name: p.name, hp: Math.ceil(p.hp), maxHp: p.maxHp, tint: '#' + p.tint.toString(16).padStart(6, '0'), down: p.action === 'dead', you: p.id === this.localId }))
         : null,
       hunt: sim.hunt
@@ -2665,6 +2721,29 @@ export class Game {
         : null,
       stats: { ...sim.stats },
     });
+  }
+
+  /** Allen's moves and cooldowns for the HUD when a person plays him. */
+  private allenHud(): NonNullable<HudState['allen']> {
+    const A = this.sim.A;
+    const c = COURSES[Math.min(this.sim.course, COURSES.length - 1)];
+    const pad = this.padActive ? this.padLayout : null;
+    const key = (k: string, action: keyof typeof PAD_ACTIONS) => (pad ? padActionLabel(pad, action) : k);
+    const move = (k: string, action: keyof typeof PAD_ACTIONS, name: string, cd: number, full: number) => ({ key: key(k, action), name, cd: clamp(cd / full, 0, 1) });
+    return {
+      active: A.active,
+      state: A.state,
+      moves: [
+        move('LMB', 'headbutt', 'Claw swipe', A.cdSwipe, 1.2),
+        move('RMB', 'charge', 'Dash', A.cdDash, 9),
+        move('Space', 'jump', 'Body slam', A.cdSlam, 6.5),
+        move('Shift', 'roll', 'Wok guard', A.cdGuard, 10),
+        move('Q', 'zap', 'Chopsticks', A.cdThrow, 4.8),
+        move('F', 'squeal', 'Summon bots', A.cdSummon, c.waveCd),
+        move('C', 'whip', 'Hot pot rain', A.cdRain, 11),
+        move('R', 'listen', 'Sizzle spin', A.cdSpin, 15),
+      ],
+    };
   }
 
   /** Draws one pig as an arrow on the minimap. */
@@ -2789,7 +2868,7 @@ export class Game {
       this.mapArrow(ctx, X(p.x), Z(p.z), p.heading, u, p.action === 'dead' ? '#7a6a66' : '#' + p.tint.toString(16).padStart(6, '0'), false);
     }
     const k = this.me;
-    this.mapArrow(ctx, X(k.x), Z(k.z), k.heading, u, '#ff8fb0', true);
+    if (!this.asAllen) this.mapArrow(ctx, X(k.x), Z(k.z), k.heading, u, '#ff8fb0', true);
   }
 
   private drawForestMinimap(ctx: CanvasRenderingContext2D, size: number) {

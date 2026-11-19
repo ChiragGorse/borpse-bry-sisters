@@ -20,6 +20,7 @@ import {
   type Collider,
 } from '../layout';
 import {
+  ALLEN_ID,
   BTN,
   NO_INPUT,
   POSE_KEYS,
@@ -280,6 +281,12 @@ export class Sim {
   hitstop = 0;
   /** True when something changed that the HUD should show right away. */
   dirty = true;
+  /** A person plays Allen (inputs keyed ALLEN_ID) instead of the AI. */
+  allenPlayer = false;
+  /** Allen's interaction prompt when a person plays him ("E|Eat the pumpkins"). */
+  allenPrompt: string | null = null;
+  /** With a person playing Allen, seconds until he comes back for the next course (pigs can ring the bell sooner). */
+  allenBreak = 0;
 
   /* ───────── internal ───────── */
   private maps: SimMaps;
@@ -338,11 +345,12 @@ export class Sim {
   /* ───────────────────────── players ───────────────────────── */
 
   /** Adds a pig to the party. Returns null when the party is full. */
-  addPlayer(name?: string): Player | null {
+  addPlayer(name?: string, id?: number): Player | null {
     if (this.players.length >= MAX_PLAYERS) return null;
+    if (id !== undefined && this.players.some((o) => o.id === id)) return null;
     const used = new Set(this.players.map((p) => p.tint));
     const tint = PLAYER_TINTS.find((t) => !used.has(t)) ?? PLAYER_TINTS[0];
-    const p = newPlayer(this.nextId++, name ?? (this.players.length === 0 ? 'Kenji' : `Pig ${this.players.length + 1}`), tint);
+    const p = newPlayer(id ?? this.nextId++, name ?? (this.players.length === 0 ? 'Kenji' : `Pig ${this.players.length + 1}`), tint);
     this.players.push(p);
     this.applyStats(true);
     const slot = this.players.length - 1;
@@ -353,6 +361,14 @@ export class Sim {
     p.z = pos.z;
     this.dirty = true;
     return p;
+  }
+
+  /** Lets a person play Allen (true) or hands him back to the AI (false). */
+  setAllenPlayer(on: boolean) {
+    this.allenPlayer = on;
+    this.allenPrompt = null;
+    if (on && this.mode === 'intermission') this.allenBreak = Math.max(this.allenBreak, 4);
+    this.dirty = true;
   }
 
   removePlayer(id: number) {
@@ -443,6 +459,7 @@ export class Sim {
   /** Starts a fresh run. The opening story only plays for single-player games. */
   start(opts: { opening?: boolean } = {}) {
     this.resetAll();
+    this.allenBreak = 4;
     this.mode = 'intermission';
     this.scatterTruffles(8);
     if (opts.opening ?? this.players.length <= 1) {
@@ -936,6 +953,7 @@ export class Sim {
   }
 
   private endCourse() {
+    this.allenBreak = 20;
     this.A.active = false;
     this.A.state = 'gone';
     this.mode = 'intermission';
@@ -1025,6 +1043,13 @@ export class Sim {
     this.updateTurret(sdt);
     this.updatePickups(sdt);
     for (const p of this.players) this.updateInteract(p);
+    // a person playing Allen doesn't wait for the bell forever: he comes back after a short break
+    if (this.allenPlayer && this.mode === 'intermission' && this.area === 'farm' && !this.hunt && !this.overReason && this.players.length) {
+      const before = Math.ceil(this.allenBreak);
+      this.allenBreak -= dt;
+      if (Math.ceil(this.allenBreak) !== before) this.dirty = true;
+      if (this.allenBreak <= 0) this.beginCourse();
+    }
     this.dummyCoachCd = Math.max(0, this.dummyCoachCd - dt);
 
     // timers
@@ -2974,10 +2999,120 @@ export class Sim {
     if (spawned > 0) this.sound('pop');
   }
 
+  /**
+   * Where a person playing Allen is aiming: the nearest standing pig roughly ahead of him (a little aim
+   * assist), or a spot a few metres ahead in the direction they're steering.
+   */
+  private allenAim(inp: PlayerInput): { x: number; z: number; vx: number; vz: number } {
+    const A = this.A;
+    const ml = Math.hypot(inp.mx, inp.mz);
+    const face = ml > 0.2 ? Math.atan2(inp.mx, inp.mz) : A.heading;
+    let best: Player | null = null;
+    let bd = 28;
+    for (const p of this.living()) {
+      const d = Math.hypot(p.x - A.x, p.z - A.z);
+      if (d < bd && Math.abs(angDiff(face, Math.atan2(p.x - A.x, p.z - A.z))) < 0.6) {
+        bd = d;
+        best = p;
+      }
+    }
+    if (best) return best;
+    return { x: A.x + Math.sin(face) * 9, z: A.z + Math.cos(face) * 9, vx: 0, vz: 0 };
+  }
+
+  /** Allen walking about under a person's control, picking moves with buttons instead of the AI. */
+  private allenControls(inp: PlayerInput, spd: number, dt: number, kDead: boolean) {
+    const A = this.A;
+    let mx = inp.mx;
+    let mz = inp.mz;
+    const ml = Math.hypot(mx, mz);
+    if (ml > 0.05) {
+      mx /= ml;
+      mz /= ml;
+      const face = Math.atan2(mx, mz);
+      A.heading = angLerp(A.heading, face, 9 * dt);
+      const step = spd * 1.1 * Math.min(1, ml);
+      A.x += mx * step * dt;
+      A.z += mz * step * dt;
+      const r = this.resolve(A.x, A.z, 1.5);
+      A.x = clamp(r.x, -BOUND, BOUND);
+      A.z = clamp(r.z, -BOUND, BOUND);
+      A.walk += dt * step * 0.9;
+    }
+    // a snack within reach?
+    let near = -1;
+    let nd = 6.5;
+    this.edibles.forEach((e, i) => {
+      const d = Math.hypot(e.x - A.x, e.z - A.z) - e.r;
+      if (e.hp > 0 && d < nd) {
+        nd = d;
+        near = i;
+      }
+    });
+    if (near >= 0) this.allenPrompt = `E|Eat the ${this.edibles[near].name.toLowerCase()}`;
+    const b = inp.buttons;
+    if (!b || kDead) return;
+    const deny = () => this.events.push({ t: 'sfx', n: 'deny', only: ALLEN_ID });
+    const go = (s: AState) => {
+      A.summoned = false;
+      A.volleys = 0;
+      A.swipes = 0;
+      this.setA(s);
+    };
+    if (b & BTN.interact && near >= 0) {
+      A.target = near;
+      A.eatDmg = 0;
+      A.chompT = 0;
+      go('eating');
+      this.say('Allen', this.pick(["Don't mind me…", 'Just a little nibble.', 'Mmm, farm to table.']), 2.4);
+    } else if (b & BTN.attack) {
+      if (A.cdSwipe <= 0) go('swipeWind');
+      else deny();
+    } else if (b & BTN.charge) {
+      if (A.cdDash <= 0) {
+        go('dashWind');
+        this.sound('roar');
+      } else deny();
+    } else if (b & BTN.jump) {
+      if (A.cdSlam <= 0) go('slamWind');
+      else deny();
+    } else if (b & BTN.roll) {
+      if (A.cdGuard <= 0) {
+        go('guard');
+        this.sound('clang');
+        this.floatText(A.x, 5.7, A.z, 'WOK GUARD!', 'info');
+      } else deny();
+    } else if (b & BTN.zap) {
+      if (A.cdThrow <= 0) go('throwWind');
+      else deny();
+    } else if (b & BTN.squeal) {
+      if (A.cdSummon <= 0 && this.bots.length < this.maxBots()) {
+        go('summon');
+        this.sound('roar');
+      } else deny();
+    } else if (b & BTN.whip) {
+      if (A.cdRain <= 0) {
+        go('rainCast');
+        A.rainLeft = 3 + A.phase;
+        A.rainT = 0.5;
+        this.sound('roar');
+        this.floatText(A.x, 6, A.z, 'HOT POT RAIN!', 'hurt');
+      } else deny();
+    } else if (b & BTN.listen) {
+      if (A.cdSpin <= 0) {
+        go('spinWind');
+        this.sound('roar');
+        this.floatText(A.x, 6, A.z, 'SIZZLE SPIN!', 'hurt');
+      } else deny();
+    }
+  }
+
   private updateAllen(dt: number) {
     const A = this.A;
+    this.allenPrompt = null;
     if (!A.active) return;
-    const k = this.allenTarget();
+    const ctl = this.allenPlayer ? (this.inputs.get(ALLEN_ID) ?? NO_INPUT) : null;
+    const k = ctl ? this.allenAim(ctl) : this.allenTarget();
     if (!k) return;
     const c = COURSES[Math.min(this.course, COURSES.length - 1)];
     A.t += dt;
@@ -3027,6 +3162,10 @@ export class Sim {
         break;
       }
       case 'chase': {
+        if (ctl) {
+          this.allenControls(ctl, spd, dt, kDead);
+          break;
+        }
         if (kDead) break;
         A.heading = angLerp(A.heading, toK, 5 * dt);
         if (dist > 3.6) this.moveAllen(k.x, k.z, spd, dt, true);
@@ -3318,7 +3457,9 @@ export class Sim {
       }
       case 'eating': {
         const e = this.edibles[A.target];
-        if (!e) {
+        // a person playing Allen stops eating by walking off
+        if (!e || (ctl && Math.hypot(ctl.mx, ctl.mz) > 0.3)) {
+          A.target = -1;
           this.setA('chase');
           break;
         }
@@ -3387,7 +3528,7 @@ export class Sim {
           A.rainT = 0.34;
           const j = A.rainLeft % 2 ? 3 : 0;
           const a = this.rnd() * TAU;
-          const v = this.players.length > 1 ? this.pick(this.living()) : k;
+          const v: { x: number; z: number; vx: number; vz: number } = this.players.length > 1 && !ctl ? this.pick(this.living()) : k;
           this.spawnRain(v.x + v.vx * 0.5 + Math.cos(a) * j, v.z + v.vz * 0.5 + Math.sin(a) * j, 14 * c.dmg, tele);
         }
         if ((A.rainLeft <= 0 && A.t >= 1.2) || A.t > 5) {

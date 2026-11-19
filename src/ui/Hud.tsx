@@ -103,6 +103,56 @@ interface HudProps {
   onInteract?: () => void;
 }
 
+/** Your panel when you play Allen: his health and poise, his moves with their cooldowns, and the pigs. */
+function AllenPanel({ hud, portraits, touch }: { hud: HudState; portraits: Record<string, string>; touch: boolean }) {
+  const a = hud.allen!;
+  const boss = hud.boss;
+  return (
+    <section aria-label="Allen status" className="sticker col-start-1 row-start-1 w-full max-w-[236px] p-2 sm:w-[300px] sm:max-w-none sm:p-2.5">
+      <div className="flex items-center gap-2.5">
+        <Portrait src={portraits.allen} alt="Allen B. Hwang" bg="bg-[#ffd3b0]" className="h-8 w-8 min-[360px]:h-10 min-[360px]:w-10 sm:h-12 sm:w-12" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="truncate font-display text-sm leading-none text-[#c2501a] sm:text-lg">YOU ARE ALLEN</h2>
+            {boss.active && (
+              <span className="font-mono text-[10px] font-medium tabular-nums sm:text-xs">
+                {Math.ceil(boss.hp)}/{boss.maxHp}
+              </span>
+            )}
+          </div>
+          {boss.active ? (
+            <>
+              <Bar value={boss.hp} max={boss.maxHp} label="Allen health" fill="bg-[#ff8a3c]" className="mt-1.5 h-4" />
+              <Bar value={boss.poise * 100} max={100} label="Stagger" fill="bg-mustard" className="mt-1 h-2.5" />
+            </>
+          ) : (
+            <p className="mt-1 text-[11px] font-bold leading-tight text-ink/70">Waiting at the gate for the next course</p>
+          )}
+        </div>
+      </div>
+      <div className={`mt-2 grid-cols-4 gap-1 ${touch ? 'hidden' : 'grid'}`}>
+        {a.moves.map((m) => (
+          <Ability key={m.name} k={m.key} name={m.name} cd={m.cd} />
+        ))}
+      </div>
+      <p className="mt-2 text-[10px] font-bold leading-tight text-ink/60">E next to a crop or pie to eat it · get staggered and the pigs pile on</p>
+      {hud.party && (
+        <ul aria-label="The pigs" className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1">
+          {hud.party.map((p) => (
+            <li key={p.id} className={`flex min-w-0 items-center gap-1 ${p.down ? 'opacity-50' : ''}`}>
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-ink" style={{ background: p.tint }} aria-hidden="true" />
+              <span className="truncate text-[10px] font-extrabold uppercase leading-none tracking-wide">{p.down ? `${p.name} · down` : p.name}</span>
+              <span className="ml-auto h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-ink/25" aria-label={`${p.hp} of ${p.maxHp} health`}>
+                <span className="block h-full rounded-full bg-[#e8506a]" style={{ width: `${Math.max(0, Math.min(100, (p.hp / Math.max(1, p.maxHp)) * 100))}%` }} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract }: HudProps) {
   const boss = hud.boss;
   const shield = boss.shield;
@@ -121,7 +171,10 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
       {hud.hurtTick > 0 && <div key={hud.hurtTick} className="hurt-flash absolute inset-0" />}
 
       <div className="absolute inset-x-0 top-0 grid grid-cols-[minmax(0,1fr)_minmax(0,7.5rem)] items-start gap-2 p-2 sm:grid-cols-[auto_1fr_auto] sm:gap-3 sm:p-4">
-        {/* Kenji */}
+        {/* Kenji, or Allen when you play him */}
+        {hud.allen ? (
+          <AllenPanel hud={hud} portraits={portraits} touch={touch} />
+        ) : (
         <section aria-label="Kenji status" className="sticker col-start-1 row-start-1 w-full max-w-[236px] p-2 sm:w-[268px] sm:max-w-none sm:p-2.5">
           <div className="flex items-center gap-2.5">
             <Portrait src={portraits.kenji} alt="Kenji the pig" className="h-8 w-8 min-[360px]:h-10 min-[360px]:w-10 sm:h-12 sm:w-12" />
@@ -197,6 +250,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             </div>
           )}
         </section>
+        )}
 
         {/* Boss / objective */}
         <div className={`col-span-2 col-start-1 row-start-2 justify-center sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1 ${
@@ -393,7 +447,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
       )}
 
       {/* controls reminder for the first intermission */}
-      {firstBreak && !touch && (
+      {firstBreak && !touch && !hud.allen && (
         <aside aria-label="Controls" className="sticker absolute bottom-4 left-4 hidden w-[250px] p-3 lg:block">
           <h2 className="font-display text-sm leading-none">HOW TO PIG</h2>
           <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2.5 gap-y-1.5 text-xs font-bold">

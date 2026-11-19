@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -23,7 +23,7 @@ export const MAX_NAME = 16;
 export const KEYS = {
   player: ['id', 'epoch', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick'],
   playerMeta: ['id', 'name', 'tint', 'maxHp', 'maxStam', 'flowMove', 'prompt', 'shopNpc'],
-  allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase'],
+  allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase', 'cdSwipe', 'cdSlam', 'cdThrow', 'cdDash', 'cdSummon', 'cdGuard', 'cdRain', 'cdSpin'],
   allenMeta: ['maxHp', 'poiseMax', 'phases', 'potTotal', 'shieldDur', 'enraged'],
   bot: ['id', 'kind', 'x', 'z', 'hp', 'maxHp', 'heading', 'stun', 'chomp', 'flash', 'ph', 'mode', 'mt', 'lx', 'lz', 'hop', 'moving', 'swing', 'behavior'],
   proj: ['id', 'kind', 'x', 'y', 'z', 'vx', 'vz', 'friendly'],
@@ -88,6 +88,10 @@ export interface Meta {
   subtitle: { who: string; text: string } | null;
   banner: { title: string; sub: string; key: number } | null;
   edibleHp: number[];
+  /** A person plays Allen; his prompt; seconds until he's back for the next course. */
+  allenPlayer: boolean;
+  allenPrompt: string | null;
+  allenBreak: number;
   players: Wire[][];
   allen: Wire[];
 }
@@ -115,7 +119,8 @@ export interface Hot {
 
 export type ServerMsg =
   | { t: 'welcome'; v: number; pid: number; room: string }
-  | { t: 'lobby'; room: string; host: number; playing: boolean; bots: number; players: LobbyPlayer[] }
+  /** `allen` is the id of the person playing Allen (0 = the AI), `allenName` their name. */
+  | { t: 'lobby'; room: string; host: number; playing: boolean; bots: number; players: LobbyPlayer[]; allen: number; allenName: string }
   /** One simulation tick: server tick time, hot state, meta when changed, stats about once a second, events. */
   | { t: 's'; st: number; hot: Hot; meta?: Meta; stats?: Stats; ev: SimEvent[]; rev?: Relayed[] }
   | { t: 'error'; msg: string };
@@ -138,7 +143,11 @@ export type ClientMsg =
   | { t: 'farm' }
   | { t: 'closeShop' }
   | { t: 'buy'; id: UpgradeId }
-  | { t: 'bots'; n: number };
+  | { t: 'bots'; n: number }
+  /** The person playing Allen: their stick and the buttons pressed since the last message. */
+  | { t: 'ain'; mx: number; mz: number; b: number }
+  /** Host: who plays Allen (a player id, or 0 for the AI). */
+  | { t: 'allen'; pid: number };
 
 /** Room codes: four letters, no look-alikes. */
 export const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';

@@ -3,16 +3,16 @@
  * one room exactly like browsers would (each mirrors the game through NetSim and plays with the bot AI
  * from what it sees), and checks the room behaves.
  *
- *   npm run net:test -- [seconds=40]
+ *   npm run net:test -- [seconds=45]
  */
 import { spawn } from 'node:child_process';
 import { headlessMaps } from '../server/maps';
 import { NetSim } from '../src/game/net/NetSim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { PROTOCOL_VERSION, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/game/net/protocol';
-import type { PlayerInput } from '../src/game/sim/types';
+import { ALLEN_ID, BTN, type PlayerInput } from '../src/game/sim/types';
 
-const SECONDS = Number(process.argv[2] ?? 40);
+const SECONDS = Number(process.argv[2] ?? 45);
 const PORT = 18000 + Math.floor(Math.random() * 1000);
 const URL_BASE = `ws://127.0.0.1:${PORT}/ws`;
 
@@ -90,6 +90,50 @@ const until = async (what: string, cond: () => boolean, ms = 8000) => {
     await new Promise((r) => setTimeout(r, 25));
   }
 };
+
+/** A second room where one person plays Allen against bot pigs. */
+async function allenRoom() {
+  const host = new TestClient('Hana', 'ALLN', false);
+  await until('Hana to host ALLN', () => !!host.lobby && host.pid > 0);
+  const allen = new TestClient('Al', 'ALLN', false);
+  await until('Al to join', () => host.lobby?.players.length === 2);
+  host.send({ t: 'bots', n: 3 });
+  await until('bot pigs', () => host.lobby?.players.filter((p) => p.bot).length === 3);
+  host.send({ t: 'allen', pid: allen.pid });
+  await until('Al to become Allen', () => (allen.lobby as { allen?: number } | null)?.allen === allen.pid);
+  if (allen.lobby!.players.some((p) => p.id === allen.pid)) fail("Allen's player should no longer have a pig");
+  ok('host picked Al to play Allen; his pig left the herd');
+  allen.sim!.allenMode = true;
+  host.send({ t: 'start' });
+  await until('the Allen game to start', () => !!allen.lobby?.playing);
+  // Al: walk at the nearest pig and keep clawing; Hana just stands about
+  const states = new Set<string>();
+  const t0 = Date.now();
+  let last = Date.now();
+  while (Date.now() - t0 < 25000) {
+    await new Promise((r) => setTimeout(r, 16));
+    const now = Date.now();
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    host.frame(dt);
+    const sim = allen.sim!;
+    const A = sim.A;
+    const pig = sim.living().sort((p, q) => Math.hypot(p.x - A.x, p.z - A.z) - Math.hypot(q.x - A.x, q.z - A.z))[0];
+    const d = pig ? Math.hypot(pig.x - A.x, pig.z - A.z) || 1 : 1;
+    const input = pig ? { mx: (pig.x - A.x) / d, mz: (pig.z - A.z) / d, buttons: d < 5 && Math.random() < 0.2 ? BTN.attack : Math.random() < 0.01 ? BTN.jump : 0 } : { mx: 0, mz: 0, buttons: 0 };
+    sim.step(dt, new Map([[ALLEN_ID, input]]));
+    sim.drainEvents();
+    if (A.active) states.add(A.state);
+    if (sim.stats.taken > 0 && states.has('swipeWind')) break;
+  }
+  if (!states.has('swipeWind')) fail(`Allen never swiped (states seen: ${[...states].join(', ')})`);
+  if (!(allen.sim!.stats.taken > 0)) fail('player-controlled Allen never hurt a pig');
+  ok(`Al played Allen over the network: ${[...states].join(', ')}; pigs took ${allen.sim!.stats.taken} damage`);
+  allen.ws.close();
+  await until('Allen to go back to the AI', () => (host.lobby as { allen?: number } | null)?.allen === 0);
+  ok("Allen's player left; the AI took Allen back");
+  host.ws.close();
+}
 
 async function main() {
   await until('the server to start', () => serverLog.some((l) => l.includes('server on')), 20000);
@@ -190,6 +234,8 @@ async function main() {
   if (pa !== pb) fail(`clients disagree on who is playing: ${pa} vs ${pb}`);
   ok('clients agree on the herd');
   for (const cl of clients) if (cl.errors.length) fail(`${cl.name} got errors: ${cl.errors.join('; ')}`);
+
+  await allenRoom();
 
   a.ws.close();
   await until('Bob to become host', () => b.lobby?.host === b.pid);

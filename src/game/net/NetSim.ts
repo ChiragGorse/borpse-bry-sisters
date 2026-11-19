@@ -15,7 +15,7 @@ import { emptyLevels } from '../data';
 import type { Collider } from '../layout';
 import { Sim, newAllen, newPlayer, poseOf, type AllenState } from '../sim/Sim';
 import type { EdibleState, GameSim } from '../sim/gameSim';
-import { NO_INPUT, POSE_KEYS, type Ally, type Area, type Bot, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Strike, type Wild } from '../sim/types';
+import { ALLEN_ID, NO_INPUT, POSE_KEYS, type Ally, type Area, type Bot, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Strike, type Wild } from '../sim/types';
 import { INTERP_DELAY, KEYS, LISTS, TICK_HZ, pack, unpack, type ClientMsg, type Hot, type Meta, type ServerMsg, type Stats, type WireStrike } from './protocol';
 
 const TAU = Math.PI * 2;
@@ -78,6 +78,11 @@ export class NetSim implements GameSim {
   turretYaw = 0;
   hitstop = 0;
   dirty = true;
+  allenPlayer = false;
+  allenPrompt: string | null = null;
+  allenBreak = 0;
+  /** This browser plays Allen: send his controls instead of driving a pig. */
+  allenMode = false;
 
   /** The pig this browser controls. */
   readonly localId: number;
@@ -155,7 +160,7 @@ export class NetSim implements GameSim {
    */
   private adoptServerPig(frame: Frame) {
     const srv = frame.players.find((p) => p.id === this.localId);
-    if (!srv) return;
+    if (!srv || this.allenMode) return;
     if (!this.pig || srv.epoch > this.pig.epoch) {
       const pig = this.pig ?? newPlayer(this.localId, srv.name, srv.tint);
       for (const k of POSE_KEYS) (pig as unknown as Record<string, unknown>)[k] = (srv as unknown as Record<string, unknown>)[k] ?? (pig as unknown as Record<string, unknown>)[k];
@@ -229,6 +234,9 @@ export class NetSim implements GameSim {
     this.forestHint = m.forestHint;
     this.overReason = m.overReason as GameOverReason | null;
     this.outcome = m.outcome;
+    this.allenPlayer = m.allenPlayer;
+    this.allenPrompt = m.allenPrompt;
+    this.allenBreak = m.allenBreak;
     this.subtitle = m.subtitle ? { ...m.subtitle, t: 1 } : null;
     this.banner = m.banner ? { ...m.banner, t: 1 } : null;
     m.edibleHp.forEach((hp, i) => {
@@ -253,14 +261,23 @@ export class NetSim implements GameSim {
 
   step(dt: number, inputs?: Map<number, PlayerInput>) {
     this.clock += dt;
-    const inp = inputs?.get(this.localId) ?? NO_INPUT;
+    const inp = inputs?.get(this.allenMode ? ALLEN_ID : this.localId) ?? NO_INPUT;
     this.btn |= inp.buttons;
+    if (this.allenMode) {
+      // playing Allen: the server moves him; we send the stick and buttons
+      this.sendT -= dt;
+      if (this.sendT <= 0 || this.btn) {
+        this.send({ t: 'ain', mx: Math.round(inp.mx * 100) / 100, mz: Math.round(inp.mz * 100) / 100, b: this.btn });
+        this.btn = 0;
+        this.sendT = 1 / TICK_HZ;
+      }
+    }
     const frames = this.frames;
     if (!frames.length) return;
     const newest = frames[frames.length - 1];
 
     // our own pig: move it right here against the newest world, and note every move it makes
-    if (this.pig) {
+    if (this.pig && !this.allenMode) {
       this.mirror(newest);
       this.shadow.predict(this.localId, dt, inp, (s) => this.strikes.push(s));
       for (const e of this.shadow.drainEvents()) {
@@ -296,6 +313,9 @@ export class NetSim implements GameSim {
     const span = b.st - a.st;
     const alpha = span > 0 ? Math.min(1, Math.max(0, (rt - a.st) / span)) : 1;
     this.present(a, b, alpha);
+
+    // playing Allen: draw him from the newest snapshot, without the interpolation delay
+    if (this.allenMode && newest.allen.active) Object.assign(this.A, this.allenMeta, newest.allen);
 
     // the local pig is drawn exactly as this browser drives it
     if (this.pig) {

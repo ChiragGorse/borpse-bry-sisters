@@ -60,6 +60,9 @@ export function encodeMeta(sim: Sim): Meta {
     subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : null,
     banner: sim.banner ? { title: sim.banner.title, sub: sim.banner.sub, key: sim.banner.key } : null,
     edibleHp: sim.edibles.map((e) => Math.ceil(e.hp)),
+    allenPlayer: sim.allenPlayer,
+    allenPrompt: sim.allenPrompt,
+    allenBreak: Math.ceil(sim.allenBreak),
     players: sim.players.map((p) => pack(p, KEYS.playerMeta)),
     allen: pack(sim.A, KEYS.allenMeta),
   };

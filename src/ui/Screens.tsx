@@ -81,6 +81,8 @@ const HERD_SIZES = [
 ];
 
 export interface OnlineProps {
+  /** Host: who plays Allen (a player id, or 0 for the AI). */
+  onAllen: (pid: number) => void;
   /** The server this page knows about (e.g. baked into the build), shown in the Server box; may be empty. */
   defaultServer: string;
   status: NetStatus | null;
@@ -159,6 +161,24 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
                 </li>
               ))}
             </ul>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-ink/70">Allen:</span>
+              {st.host ? (
+                [{ id: 0, name: 'AI' }, ...(st.allen ? [{ id: st.allen, name: st.allenName }] : []), ...humans.map((p) => ({ id: p.id, name: p.name }))].map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    aria-pressed={st.allen === o.id}
+                    onClick={() => online.onAllen(o.id)}
+                    className={`rounded-full border-2 border-ink px-2.5 py-0.5 text-[11px] font-extrabold uppercase ${st.allen === o.id ? 'bg-[#ffd3b0]' : 'bg-white text-ink/70'}`}
+                  >
+                    {o.id === st.pid ? `${o.name} (you)` : o.name}
+                  </button>
+                ))
+              ) : (
+                <span className="text-xs font-extrabold uppercase">{st.allen ? (st.allen === st.pid ? 'You!' : st.allenName) : 'the AI'}</span>
+              )}
+            </div>
             {st.host ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-ink/70">You're the host. Bot pigs:</span>
@@ -253,9 +273,13 @@ export function TitleScreen({
   touch = false,
   bots = 0,
   onBots,
+  role = 'pig',
+  onRole,
   online,
   onStart,
 }: {
+  role?: 'pig' | 'allen';
+  onRole?: (r: 'pig' | 'allen') => void;
   portraits: Record<string, string>;
   pad?: PadLayout;
   touch?: boolean;
@@ -318,8 +342,25 @@ export function TitleScreen({
         {onBots && !inRoom && (
           <fieldset className="rise-in flex flex-wrap items-center gap-2 [animation-delay:170ms]">
             <legend className="sr-only">Herd size</legend>
-            <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Herd</span>
-            {HERD_SIZES.map((h) => (
+            {!onRole && <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Herd</span>}
+            {onRole && (
+              <>
+                <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Play as</span>
+                {(['pig', 'allen'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    aria-pressed={role === r}
+                    onClick={() => onRole(r)}
+                    className={`rounded-full border-2 border-ink px-3 py-1 text-xs font-extrabold uppercase tracking-wide ${role === r ? 'bg-pig text-ink' : 'bg-paper/85 text-ink/70'}`}
+                  >
+                    {r === 'pig' ? 'Kenji' : 'Allen'}
+                  </button>
+                ))}
+                <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">{role === 'allen' ? 'Pigs' : 'Herd'}</span>
+              </>
+            )}
+            {HERD_SIZES.filter((h) => role === 'pig' || h.bots > 0).map((h) => (
               <button
                 key={h.bots}
                 type="button"
@@ -330,7 +371,7 @@ export function TitleScreen({
                 {h.label}
               </button>
             ))}
-            <span className="text-xs font-medium text-paper/75">Bot pigs fight beside you · multiplayer test</span>
+            <span className="text-xs font-medium text-paper/75">{role === 'allen' ? 'Bot pigs fight you · eat the farm or flatten them all' : 'Bot pigs fight beside you'}</span>
           </fieldset>
         )}
 
@@ -539,12 +580,16 @@ export function GameOverScreen({ hud, portraits, onRetry, onRestart }: { hud: Hu
               {guppy ? 'Slopwood Forest / Trail Encounter' : `Course ${hud.course + 1} / ${hud.courseName}`}
             </p>
             <h2 id="over-title" className="mt-1 font-display text-3xl leading-none sm:text-5xl">
-              {guppy ? 'GUPPY GOT YOU' : farm ? 'THE FARM GOT EATEN' : 'KENJI GOT PLATED'}
+              {hud.allen ? 'DINNER IS SERVED' : guppy ? 'GUPPY GOT YOU' : farm ? 'THE FARM GOT EATEN' : 'KENJI GOT PLATED'}
             </h2>
           </div>
         </div>
         <p className="mt-4 text-base font-medium leading-snug">
-          {guppy
+          {hud.allen
+            ? farm
+              ? 'You ate every crop, pie and hay bale on the farm. Compliments to the farmer. You win!'
+              : 'Every last pig is flattened. You win! Go again on this course, or start the feast over.'
+            : guppy
             ? 'Path Guppy knocked Kenji out. Head back to the farm to recover. Recruits and collected truffles are safe.'
             : farm
             ? 'Allen cleaned out every crop, pie and hay bale. Hit him while he is eating to interrupt the meal — and have Rickley replant between courses.'
@@ -553,7 +598,7 @@ export function GameOverScreen({ hud, portraits, onRetry, onRestart }: { hud: Hu
         <Stats hud={hud} />
         <div className="mt-5 flex flex-wrap gap-3">
           <button type="button" onClick={onRetry} autoFocus data-pad-default className="btn flex-1 bg-mustard px-5 py-3 font-display text-xl leading-none">
-            {guppy ? 'RETURN TO THE FARM' : `RETRY COURSE ${hud.course + 1}`}
+            {hud.allen ? `PLAY COURSE ${hud.course + 1} AGAIN` : guppy ? 'RETURN TO THE FARM' : `RETRY COURSE ${hud.course + 1}`}
           </button>
           <button type="button" onClick={onRestart} className="btn bg-white px-4 py-3 text-sm font-extrabold uppercase tracking-wide">
             Start over
@@ -576,11 +621,12 @@ export function VictoryScreen({ hud, portraits, onRestart }: { hud: HudState; po
           <Portrait src={portraits.trout} alt="Trout" bg="bg-[#b5edf5]" className="h-16 w-16" />
         </div>
         <div className="p-5 sm:p-7">
-          <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-leaf">All eight courses survived</p>
+          <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-leaf">{hud.allen ? 'All eight courses served' : 'All eight courses survived'}</p>
           <h2 id="win-title" className="mt-1 font-display text-4xl leading-none sm:text-5xl">
-            THE FARM IS SAVED
+            {hud.allen ? 'THE PIGS WON' : 'THE FARM IS SAVED'}
           </h2>
           <p className="mt-3 text-base font-medium leading-snug">
+            {hud.allen && 'The herd drove you off the farm for good. Better luck at the next feast. '}
             Allen B. Hwang has sworn off pork belly and is, reportedly, very into tofu now. Rickley is planting soybeans just in case. Kingger wants his Grillbots back for “research”.
           </p>
           <Stats hud={hud} />

@@ -28,10 +28,21 @@ export default function App() {
   const defaultServer = displayAddress(Game.serverUrl());
   const joinOnline = useCallback((room: string, name: string, url: string) => game.current?.joinOnline(room, name, url), []);
   const leaveOnline = useCallback(() => game.current?.leaveOnline(), []);
+  const chooseAllen = useCallback((pid: number) => game.current?.chooseAllen(pid), []);
+  const [role, setRoleState] = useState<'pig' | 'allen'>('pig');
   const setBots = useCallback((n: number) => {
     setBotsState(n);
     game.current?.setBots(n);
   }, []);
+  const setRole = useCallback(
+    (r: 'pig' | 'allen') => {
+      setRoleState(r);
+      game.current?.setRole(r);
+      // Allen needs pigs to chase
+      if (r === 'allen' && bots === 0) setBots(3);
+    },
+    [bots, setBots],
+  );
   const touch = useTouchDevice();
   const getGame = useCallback(() => game.current, []);
   const interact = useCallback(() => game.current?.touchPress('KeyE'), []);
@@ -122,7 +133,9 @@ export default function App() {
           touch={touch}
           bots={bots}
           onBots={setBots}
-          online={{ defaultServer, status: net, onJoin: joinOnline, onLeave: leaveOnline }}
+          role={role}
+          onRole={setRole}
+          online={{ defaultServer, status: net, onJoin: joinOnline, onLeave: leaveOnline, onAllen: chooseAllen }}
           onStart={start}
         />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}

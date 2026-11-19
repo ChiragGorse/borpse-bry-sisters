@@ -96,10 +96,40 @@ See [HOSTING.md](HOSTING.md) to run it.
 
 Tests: `npm run net:test` (server + three clients, ~40 s) and `npm run sim:soak`.
 
+## Playing as Allen
+
+- **Offline:** on the title screen pick **Play as: Allen**, then how many bot pigs (+3 or +7).
+- **Online:** the host picks who plays Allen in the lobby (**Allen: AI / a player**). That person's pig
+  leaves the herd; everyone else plays pigs. If Allen's player leaves, the AI takes him back.
+
+Controls (keyboard / controller use the pig bindings):
+
+| Key | Move |
+|-----|------|
+| WASD | Walk (he faces where you walk; moves aim at the nearest pig ahead, else straight ahead) |
+| LMB / J | Claw swipe |
+| RMB / K | Dash |
+| Space | Body slam (lands where you're aiming) |
+| Shift | Wok guard (blocks hits from the front) |
+| Q | Chopstick throw |
+| F | Summon kitchen bots |
+| C | Hot pot rain |
+| R | Sizzle spin (invincible while spinning, dizzy after) |
+| E | Eat the crop or pie you're next to (walk off to stop) |
+
+Allen wins by eating the farm or knocking out every pig; the pigs win by getting through all eight
+courses. Between courses he comes back on his own after 20 s (4 s at the start) unless a pig rings
+the bell first. Everything else about Allen is unchanged: his sauce-shield phases, stagger, hunger
+for crops, kitchen reinforcements, and the health/jar scaling for bigger herds.
+
+In the simulation, `sim.setAllenPlayer(true)` hands Allen to inputs keyed `ALLEN_ID`; in his
+`chase` state `allenControls` turns buttons into the same states the AI picks (with the same
+cooldowns), and `allenAim` stands in for his target. Online, Allen's controls go to the server as
+`ain` messages and he's simulated there (not predicted in the browser). `npm run allen:test` drives
+Allen with a scripted player against bot pigs.
+
 ## Next phases
 
 3. **Co-op polish.** Reviving downed pigs, per-player shops/economy, per-player sounds.
-4. **Player-controlled Allen.** Allen is a state machine with per-move cooldowns; a human Allen
-   replaces the "pick the next move" step in `updateAllen` with button presses.
-5. **Polish.** Reconnecting to your pig after a dropped connection, a room browser, compressing
+4. **Polish.** Reconnecting to your pig after a dropped connection, a room browser, compressing
    snapshots further (deltas), persistence across server restarts.

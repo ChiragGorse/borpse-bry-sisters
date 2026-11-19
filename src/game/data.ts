@@ -487,6 +487,8 @@ export interface HudState {
   allies: number;
   alliesMax: number;
   fallen: number;
+  /** Set when this browser plays Allen: his moves (cooldown 0 = ready, 1 = just used). */
+  allen: { active: boolean; state: string; moves: { key: string; name: string; cd: number }[] } | null;
   /** Everyone in the herd when more than one pig is playing (null in single-player). */
   party: { id: number; name: string; hp: number; maxHp: number; tint: string; down: boolean; you: boolean }[] | null;
   hunt: {

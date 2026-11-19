@@ -58,6 +58,9 @@ export interface PlayerInput {
 
 export const NO_INPUT: PlayerInput = { mx: 0, mz: 0, buttons: 0 };
 
+/** Key in the inputs map for a person playing Allen (pigs use their player ids, which are positive). */
+export const ALLEN_ID = -1;
+
 /** A pig controlled by a person (or a stand-in bot). Player 0 is the original Kenji. */
 export interface Player {
   id: number;

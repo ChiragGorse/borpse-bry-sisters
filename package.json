@@ -11,7 +11,8 @@
     "server": "node scripts/run-ts.mjs server/index.ts",
     "server:build": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist-server/server.mjs",
     "start": "node dist-server/server.mjs",
-    "net:test": "node scripts/run-ts.mjs scripts/net-test.ts"
+    "net:test": "node scripts/run-ts.mjs scripts/net-test.ts",
+    "allen:test": "node scripts/run-ts.mjs scripts/allen-test.ts"
   },
   "dependencies": {
     "clsx": "2.1.1",
