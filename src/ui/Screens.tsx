@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { NetStatus } from '../game/net/NetClient';
+import { serverAddress, type NetStatus } from '../game/net/NetClient';
 import type { HudState } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
 import { Key, Portrait } from './Hud';
@@ -81,10 +81,10 @@ const HERD_SIZES = [
 ];
 
 export interface OnlineProps {
-  /** Whether this page can reach a game server at all. */
-  available: boolean;
+  /** The server this page knows about (e.g. baked into the build), shown in the Server box; may be empty. */
+  defaultServer: string;
   status: NetStatus | null;
-  onJoin: (room: string, name: string) => void;
+  onJoin: (room: string, name: string, serverUrl: string) => void;
   onLeave: () => void;
 }
 
@@ -111,12 +111,18 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
   const [name, setName] = useState(() => readPref('borpse.name', 'Kenji'));
   const [room, setRoom] = useState(() => new URLSearchParams(window.location.search).get('room')?.toUpperCase().slice(0, 4) ?? '');
   const [copied, setCopied] = useState(false);
-  if (!online.available) {
-    return <p className="rise-in text-xs font-medium text-paper/70 [animation-delay:170ms]">Online co-op needs the game server: open the game from a Borpse server to play with friends.</p>;
-  }
+  // a server from an invite link wins over the one remembered from last time
+  const [server, setServer] = useState(() =>
+    new URLSearchParams(window.location.search).has('server') ? online.defaultServer : readPref('borpse.server', online.defaultServer) || online.defaultServer,
+  );
+  const [formError, setFormError] = useState<string | null>(null);
+  const securePage = window.location.protocol === 'https:';
   const inRoom = st && (st.state === 'lobby' || st.state === 'connecting');
   if (inRoom) {
-    const link = `${window.location.origin}${window.location.pathname}?room=${st.room}`;
+    // invite links carry the server too, so friends land in the right place
+    const params = new URLSearchParams({ room: st.room });
+    if (server && !/^(https?:\/\/)?(localhost|127\.)/i.test(server.trim())) params.set('server', server.trim());
+    const link = `${window.location.origin}${window.location.pathname}?${params}`;
     const humans = st.players.filter((p) => !p.bot);
     return (
       <section aria-label="Online room" className="sticker rise-in flex max-w-[560px] flex-col gap-2 p-3 [animation-delay:170ms]">
@@ -185,10 +191,29 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
       className="rise-in flex max-w-[560px] flex-wrap items-end gap-2 [animation-delay:170ms]"
       onSubmit={(e) => {
         e.preventDefault();
+        const addr = serverAddress(server);
+        if ('error' in addr) {
+          setFormError(addr.error);
+          return;
+        }
+        setFormError(null);
         writePref('borpse.name', name);
-        online.onJoin(room, name);
+        writePref('borpse.server', server);
+        online.onJoin(room, name, addr.url);
       }}
     >
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Server</span>
+        <input
+          id="online-server"
+          value={server}
+          placeholder={securePage ? 'abc.trycloudflare.com' : '192.168.1.23:8080'}
+          spellCheck={false}
+          autoCapitalize="off"
+          onChange={(e) => setServer(e.target.value)}
+          className="w-56 max-w-full rounded-lg border-2 border-ink bg-paper px-2 py-1 font-mono text-sm font-bold text-ink"
+        />
+      </label>
       <label className="flex flex-col gap-1">
         <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-mustard">Online name</span>
         <input id="online-name" value={name} maxLength={16} onChange={(e) => setName(e.target.value)} className="w-36 rounded-lg border-2 border-ink bg-paper px-2 py-1 text-sm font-bold text-ink" />
@@ -207,9 +232,15 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
       <button type="submit" className="btn bg-pig px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-ink">
         {room.length === 4 ? 'Join room' : 'Host a room'}
       </button>
-      {st?.state === 'closed' && st.error && (
-        <p className="w-full text-xs font-bold text-[#ffb3a6]" role="alert">
-          {st.error}
+      {(formError || (st?.state === 'closed' && st.error)) && (
+        <p className="w-full max-w-[34rem] text-xs font-bold text-[#ffb3a6]" role="alert">
+          {formError ?? st!.error}
+        </p>
+      )}
+      {securePage && !online.defaultServer && (
+        <p className="w-full max-w-[34rem] text-xs font-medium leading-snug text-paper/75">
+          Running the server on your own PC? You can use <code className="font-mono">localhost:8080</code> yourself. Friends need a secure address: run{' '}
+          <code className="font-mono">cloudflared tunnel --url http://localhost:8080</code> and share the https address it prints.
         </p>
       )}
     </form>

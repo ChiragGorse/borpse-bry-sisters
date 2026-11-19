@@ -7,7 +7,7 @@ import { GameOverScreen, OpeningCutscene, PauseScreen, TitleScreen, VictoryScree
 import { navigatePadMenu } from './ui/gamepadMenu';
 import { MobileControls } from './ui/MobileControls';
 import { useTouchDevice } from './ui/useTouchDevice';
-import type { NetStatus } from './game/net/NetClient';
+import { displayAddress, type NetStatus } from './game/net/NetClient';
 
 const initialBots = (() => {
   const q = Number(new URLSearchParams(window.location.search).get('bots'));
@@ -25,8 +25,8 @@ export default function App() {
   // ?bots=N or #bots-N fills the herd with N stand-in pigs for trying out multiplayer locally
   const [bots, setBotsState] = useState(initialBots);
   const [net, setNet] = useState<NetStatus | null>(null);
-  const serverUrl = Game.serverUrl();
-  const joinOnline = useCallback((room: string, name: string) => game.current?.joinOnline(room, name), []);
+  const defaultServer = displayAddress(Game.serverUrl());
+  const joinOnline = useCallback((room: string, name: string, url: string) => game.current?.joinOnline(room, name, url), []);
   const leaveOnline = useCallback(() => game.current?.leaveOnline(), []);
   const setBots = useCallback((n: number) => {
     setBotsState(n);
@@ -122,7 +122,7 @@ export default function App() {
           touch={touch}
           bots={bots}
           onBots={setBots}
-          online={{ available: !!serverUrl, status: net, onJoin: joinOnline, onLeave: leaveOnline }}
+          online={{ defaultServer, status: net, onJoin: joinOnline, onLeave: leaveOnline }}
           onStart={start}
         />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}

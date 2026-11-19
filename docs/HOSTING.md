@@ -39,7 +39,31 @@ WebSockets (`wss://`) automatically.
 A small instance is enough: a room of 8 pigs costs a few percent of one CPU core, and each player
 receives roughly 30–60 KB/s.
 
-## Online play on the GitHub Pages site
+## Playing on the GitHub Pages site with the server on your PC
+
+The live site has a **Server** box under the online name. Because the site is loaded over https,
+browsers only let it connect to secure (https/wss) servers, plus `localhost`. So:
+
+1. Start the server on your PC (`npm start`).
+2. You: type `localhost:8080` in the Server box and press **Host a room**.
+3. Your friends need a secure address for your PC. The quickest is a free Cloudflare quick tunnel
+   (no account): install `cloudflared` (on Windows: `winget install Cloudflare.cloudflared`), run
+
+   ```bash
+   cloudflared tunnel --url http://localhost:8080
+   ```
+
+   and share the `https://….trycloudflare.com` address it prints. Friends paste it in the Server
+   box with your room code. (If you type that address yourself instead of `localhost`, the
+   **Copy invite link** button includes it, so friends just open the link.)
+
+Typing a bare IP like `192.168.1.23:8080` into the live site doesn't work: the browser blocks it,
+and the box tells you so. For LAN play without a tunnel, have everyone open
+`http://<your PC's IP>:8080` instead, which serves the game straight from your server.
+
+The quick tunnel's address changes every time you start it.
+
+## Online play on the GitHub Pages site (permanent server)
 
 GitHub Pages only serves files, so the live site needs a game server running somewhere else
 (any of the cloud options above). Then:

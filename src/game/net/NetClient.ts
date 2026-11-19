@@ -41,6 +41,49 @@ export function defaultServerUrl(): string | null {
   return null;
 }
 
+const LOCAL_HOSTS = /^(localhost|127(\.\d+){3}|\[::1\])$/i;
+
+/**
+ * Turns what someone typed into the Server box ("192.168.1.23:8080", "abc.trycloudflare.com",
+ * "https://borpse.example.com") into a WebSocket address, or explains why this page can't use it.
+ * Pages loaded over https may only reach secure (wss://) servers, plus localhost.
+ */
+export function serverAddress(input: string, pageProtocol = window.location.protocol): { url: string } | { error: string } {
+  const raw = input.trim().replace(/\/+$/, '');
+  if (!raw) return { error: 'Type the address of the computer running the game server.' };
+  const m = /^([a-z]+):\/\/(.*)$/i.exec(raw);
+  const scheme = m?.[1].toLowerCase();
+  const rest = m ? m[2] : raw;
+  const hostPort = rest.split('/')[0];
+  const host = hostPort.startsWith('[') ? hostPort.slice(0, hostPort.indexOf(']') + 1) : hostPort.split(':')[0];
+  const local = LOCAL_HOSTS.test(host);
+  const securePage = pageProtocol === 'https:';
+  let secure: boolean;
+  if (scheme === 'https' || scheme === 'wss') secure = true;
+  else if (scheme === 'http' || scheme === 'ws') secure = false;
+  else if (scheme) return { error: `"${scheme}://" isn't a server address. Use something like https://my-server.example.com.` };
+  // a bare IP address is almost always the plain game server on someone's computer, not a secure one
+  else secure = securePage && !local && !/^(\d+(\.\d+){3}|\[.*\])$/.test(host);
+  if (securePage && !secure && !local) {
+    return {
+      error:
+        "This page is loaded over https, so your browser won't let it connect to an unencrypted server like that. " +
+        'Give the server a secure address with a tunnel (see Hosting help), or open the game from the server itself: http://' +
+        rest.replace(/\/ws$/, ''),
+    };
+  }
+  let path = rest.replace(/\/ws$/, '');
+  if (!path) return { error: 'Type the address of the computer running the game server.' };
+  path = `${path}/ws`;
+  return { url: `${secure ? 'wss' : 'ws'}://${path}` };
+}
+
+/** The Server box's starting text for a page that already knows its server. */
+export function displayAddress(url: string | null): string {
+  if (!url) return '';
+  return url.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://').replace(/\/ws$/, '');
+}
+
 export class NetClient {
   status: NetStatus;
   sim: NetSim | null = null;
@@ -57,7 +100,7 @@ export class NetClient {
     const qs = new URLSearchParams({ room, name, v: String(PROTOCOL_VERSION) });
     this.ws = new WebSocket(`${url}?${qs}`);
     this.ws.onmessage = (e) => this.onMessage(e.data);
-    this.ws.onclose = () => this.update({ state: 'closed', error: this.status.error ?? (this.status.state === 'connecting' ? "Couldn't reach the game server." : 'Disconnected from the game server.') });
+    this.ws.onclose = () => this.update({ state: 'closed', error: this.status.error ?? (this.status.state === 'connecting' ? "Couldn't reach the game server. Check the address, that the server is running, and that its firewall lets players in." : 'Disconnected from the game server.') });
     this.ws.onerror = () => undefined;
     this.onStatus(this.status);
   }
