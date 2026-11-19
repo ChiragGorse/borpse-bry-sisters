@@ -4,6 +4,8 @@ import { ACTIVE_INFO, type ActiveId, type HudState } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
 import { Key, Keys, Portrait } from './Hud';
 import { bindLabel } from '../game/keybinds';
+import { GAME_VERSION } from '../game/changelog';
+import { changelogUnseen } from './Changelog';
 
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -267,8 +269,10 @@ export function TitleScreen({
   online,
   onStart,
   onSettings,
+  onChangelog,
 }: {
   onSettings?: () => void;
+  onChangelog?: () => void;
   role?: 'pig' | 'allen';
   onRole?: (r: 'pig' | 'allen') => void;
   portraits: Record<string, string>;
@@ -293,7 +297,19 @@ export function TitleScreen({
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(100deg,rgb(27_18_13/0.92)_0%,rgb(27_18_13/0.72)_38%,rgb(27_18_13/0)_72%)]" />
       <main className="relative flex min-h-full flex-col justify-center gap-5 px-6 py-6 sm:px-12 lg:max-w-[760px] lg:px-16">
         <header className="rise-in">
-          <p className="font-mono text-xs font-medium uppercase tracking-[0.3em] text-mustard sm:text-sm">A farm-to-table horror story</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.3em] text-mustard sm:text-sm">A farm-to-table horror story</p>
+            {onChangelog && (
+              <button
+                type="button"
+                onClick={onChangelog}
+                className="flex items-center gap-1.5 rounded-full border-2 border-mustard px-2.5 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wide text-mustard hover:bg-mustard hover:text-ink"
+              >
+                {GAME_VERSION} · What&rsquo;s new
+                {changelogUnseen() && <span className="rounded-full bg-barn px-1.5 text-[9px] text-paper">NEW</span>}
+              </button>
+            )}
+          </div>
           <h1 className="outlined mt-4 -rotate-2 font-display text-[clamp(2.6rem,min(8.2vw,10.5vh),6rem)] leading-[0.92] text-paper drop-shadow-[6px_6px_0_var(--color-barn)]">
             <span className="block text-[0.45em] leading-none text-mustard">THE</span>
             BORPSE BRY
@@ -635,6 +651,7 @@ export function PauseScreen({
             <li>Between courses, go on a Hog Hunt with Herb for truffles. Stay near his lantern.</li>
           </ul>
         </details>
+        <p className="mt-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-ink/45">{GAME_VERSION}</p>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { Hud } from './ui/Hud';
 import { Shop } from './ui/Shop';
 import { GameOverScreen, OpeningCutscene, PauseScreen, TitleScreen, VictoryScreen, type MenuAction } from './ui/Screens';
 import { SettingsDialog } from './ui/Settings';
+import { ChangelogDialog } from './ui/Changelog';
 import { navigatePadMenu } from './ui/gamepadMenu';
 import { MobileControls } from './ui/MobileControls';
 import { useTouchDevice } from './ui/useTouchDevice';
@@ -85,6 +86,8 @@ export default function App() {
 
   const [settings, setSettingsState] = useState(false);
   const [editTouch, setEditTouch] = useState(false);
+  const [changelog, setChangelog] = useState(false);
+  const closeChangelog = useCallback(() => setChangelog(false), []);
   const setSettings = useCallback((open: boolean) => setSettingsState(open), []);
   // while a settings overlay is up, Esc and P belong to it, not to the pause menu
   useEffect(() => {
@@ -162,7 +165,9 @@ export default function App() {
           online={{ defaultServer, status: net, onJoin: joinOnline, onLeave: leaveOnline, onAllen: chooseAllen }}
           onStart={start}
           onSettings={() => setSettings(true)}
+          onChangelog={() => setChangelog(true)}
         />}
+      {hud && changelog && screen === 'title' && <ChangelogDialog onClose={closeChangelog} />}
       {hud && screen === 'shop' && <Shop hud={hud} portraits={portraits} onBuy={buy} onClose={() => game.current?.closeShop()} />}
       {hud && screen === 'paused' && !editTouch && (
         <PauseScreen
