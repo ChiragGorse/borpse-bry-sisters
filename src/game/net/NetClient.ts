@@ -14,15 +14,31 @@ export interface NetStatus {
   error: string | null;
 }
 
-/** Where the game server lives: the page's own host when the server is serving it, or ?server=… */
+/** Turns "https://host", "host:8080" or "wss://host/ws" into the server's WebSocket address. */
+function toWs(url: string): string {
+  let u = url.trim().replace(/\/+$/, '');
+  if (!/^[a-z]+:\/\//i.test(u)) u = `https://${u}`;
+  u = u.replace(/^http/i, 'ws');
+  return /\/ws$/.test(u) ? u : `${u}/ws`;
+}
+
+/**
+ * Where the game server lives, or null when this page has none (e.g. opened from a file or an artifact):
+ *  1. `?server=…` in the page address,
+ *  2. the page was served by a Borpse game server (it adds a `borpse-server` meta tag),
+ *  3. the server baked in at build time (VITE_GAME_SERVER, e.g. for the GitHub Pages build),
+ *  4. Vite's dev server, talking to `npm run server` next to it.
+ */
 export function defaultServerUrl(): string | null {
   const q = new URLSearchParams(window.location.search).get('server');
-  if (q) return q.replace(/^http/, 'ws').replace(/\/?$/, '/ws').replace(/\/ws\/ws$/, '/ws');
-  const { protocol, host, port } = window.location;
-  if (protocol !== 'http:' && protocol !== 'https:') return null;
-  // Vite's dev server: talk to a game server running next to it
-  if (port === '5173') return `ws://${window.location.hostname}:8080/ws`;
-  return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/ws`;
+  if (q) return toWs(q);
+  const { protocol, host, hostname, port } = window.location;
+  const web = protocol === 'http:' || protocol === 'https:';
+  if (web && document.querySelector('meta[name="borpse-server"]')) return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/ws`;
+  const built = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_GAME_SERVER;
+  if (built) return toWs(built);
+  if (web && port === '5173') return `ws://${hostname}:8080/ws`;
+  return null;
 }
 
 export class NetClient {

@@ -25,6 +25,10 @@ jobs:
       # node_modules is committed to the repo; reinstall cleanly so Linux binaries and exec bits are correct.
       - run: rm -rf node_modules && npm ci
       - run: npm run build
+        env:
+          # Address of your hosted game server (Settings → Secrets and variables → Actions → Variables).
+          # Leave it unset and the live page plays solo and with bots only.
+          VITE_GAME_SERVER: ${{ vars.GAME_SERVER_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

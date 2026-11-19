@@ -46,7 +46,9 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
     return;
   }
   try {
-    const body = await readFile(file);
+    let body = await readFile(file);
+    // tell the page it came from a game server, so it connects back here for online play
+    if (file.endsWith('.html')) body = Buffer.from(body.toString('utf8').replace('<head>', '<head><meta name="borpse-server" content="1">'));
     res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-cache' });
     res.end(body);
   } catch {

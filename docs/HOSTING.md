@@ -39,6 +39,20 @@ WebSockets (`wss://`) automatically.
 A small instance is enough: a room of 8 pigs costs a few percent of one CPU core, and each player
 receives roughly 30–60 KB/s.
 
+## Online play on the GitHub Pages site
+
+GitHub Pages only serves files, so the live site needs a game server running somewhere else
+(any of the cloud options above). Then:
+
+1. Deploy the server and note its address, e.g. `https://borpse.example.com`.
+2. In the GitHub repo: **Settings → Secrets and variables → Actions → Variables → New repository
+   variable**, name `GAME_SERVER_URL`, value that address.
+3. Re-run the **Deploy to GitHub Pages** workflow (or push to `master`).
+
+The live page then shows **Host a room** and connects to that server. Without the variable it hides
+online play and plays solo and with bots, as before. Use an `https://` server address: a page served
+over https can't connect to an insecure `ws://` server.
+
 ## Settings
 
 | Variable     | Default | What it does |
@@ -59,5 +73,6 @@ server on port 8080 automatically. To point a page at another server, add
 ## What doesn't work
 
 - The game hosted as a claude.ai artifact or opened as a local file can't play online: it has no
-  server to connect to. It still plays solo and with bot pigs.
+  server to connect to. It still plays solo and with bot pigs. Any page can be pointed at a server by
+  adding `?server=https://your-server.example.com` to its address.
 - Rooms live in memory. Restarting the server ends every game in progress.
