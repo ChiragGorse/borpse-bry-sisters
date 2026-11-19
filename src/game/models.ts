@@ -480,6 +480,18 @@ export function makeCharig(): NpcModel {
   return { root, body, head, armR, armL, spin: null };
 }
 
+/** Allen back in school, before the greed and the hunger: a regular-sized kid in his orange. */
+export function makeYoungAllen(): NpcModel {
+  const { root, body, head, armL, armR } = kid(0xff7a1a, 0x8c9199, 0xf0c8a0, 0x15121a);
+  const hair = M(0x15121a);
+  part(head, new THREE.SphereGeometry(0.43, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.52), hair, 0, 0.03, -0.03, { rx: -0.28 });
+  part(head, cone(0.15, 0.3, 5), hair, 0.08, 0.44, 0.14, { rz: -0.5, rx: 0.5 });
+  // the little orange bow tie he never takes off
+  part(body, cone(0.09, 0.18, 4), M(0xff7a1a), -0.1, 2.0, 0.3, { rz: -Math.PI / 2 });
+  part(body, cone(0.09, 0.18, 4), M(0xff7a1a), 0.1, 2.0, 0.3, { rz: Math.PI / 2 });
+  return { root, body, head, armR, armL, spin: null };
+}
+
 /** Kioff: Gen Ed graphics wizard. (A stand-in look: hoodie, headphones and a drawing tablet.) */
 export function makeKioff(): NpcModel {
   const { root, body, head, armL, armR } = kid(0x6a4c9c, 0x3a3a44, 0xe0b48e, 0xeeeeee);

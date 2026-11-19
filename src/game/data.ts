@@ -313,7 +313,7 @@ export const COURSES: CourseDef[] = [
     newFoe: 'Grillbots join the hunt',
   },
   {
-    name: 'Banchan Blitz',
+    name: 'Dim Sum Blitz',
     hp: 620,
     speed: 7.2,
     dmg: 1.3,

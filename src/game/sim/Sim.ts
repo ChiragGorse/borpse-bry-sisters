@@ -1135,9 +1135,9 @@ export class Sim {
           this.say(
             'Allen',
             this.pick([
-              'Come here, little samgyeopsal!',
+              'Come here, little char siu!',
               'Crispy outside, tender inside…',
-              "You'd pair so well with kimchi.",
+              "You'd pair so well with fried rice.",
               'Just one bite. ONE!',
               'Stop running — you are tenderizing yourself!',
               'I can already hear the sizzle.',
@@ -3096,7 +3096,7 @@ export class Sim {
       this.fx.groundMark(A.x, 0, A.z, 5.2, 'crater', 0xffb255, 3.0);
       this.spawnShock(A.x, A.z, 10, 26, false, 0);
       this.showBanner('SHIELD SHATTERED!', 'Allen is EXPOSED · +35% damage — unload your combos!');
-      this.say('Allen', this.pick(['My marinade! That took HOURS!', 'Not the gochujang!', 'You broke my sauce… you MONSTER.']), 3.6);
+      this.say('Allen', this.pick(['My marinade! That took HOURS!', 'Not the chili oil!', 'You broke my sauce… you MONSTER.']), 3.6);
     } else {
       const heal = Math.round(A.maxHp * 0.12);
       A.hp = Math.min(A.maxHp, A.hp + heal);
@@ -5174,7 +5174,7 @@ export class Sim {
       }
       if (!this.greeted.kingger && near(SPOT.kingger, 10)) {
         this.greeted.kingger = true;
-        this.say('Kingger', this.pick(['Ah, test subject K! I have prototypes.', 'My models say rocket trotters raise survival odds 34%.', 'Technically it is "samgyeopsal", but yes — he wants to eat you.']), 3.5);
+        this.say('Kingger', this.pick(['Ah, test subject K! I have prototypes.', 'My models say rocket trotters raise survival odds 34%.', 'He keeps calling you "char siu". Technically that is a compliment.']), 3.5);
       }
       if (!this.greeted.trout && (near(SPOT.troutDock, 8.5) || near(SPOT.trout, 9.5))) {
         this.greeted.trout = true;

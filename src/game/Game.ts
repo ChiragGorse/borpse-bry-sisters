@@ -15,6 +15,7 @@ import {
   makeKingger,
   makeCharig,
   makeKioff,
+  makeYoungAllen,
   makeTrout,
   makeGrillbot,
   makeSpitter,
@@ -272,6 +273,8 @@ export class Game {
   private eyes: { g: THREE.Group; t: number; life: number }[] = [];
   /** Cutscene-only Path Guppy (an AL kid in the war) and the "back in the lab" memory props. */
   private cutGuppy!: GuppyModel;
+  /** Allen in the flashbacks, before he ate everything: kid-sized, not round. */
+  private youngAllen!: NpcModel;
   private cutProps!: { group: THREE.Group; screen: THREE.Group; tripod: THREE.Group; lab: THREE.Group; flask: THREE.Mesh; screenMat: THREE.MeshBasicMaterial; brew: THREE.MeshStandardMaterial };
   /** Opening-story bookkeeping: which beat is playing, which one-shot effects fired, pigs eaten so far. */
   private cut: { step: number; fired: Set<string>; eaten: number } = { step: -1, fired: new Set(), eaten: 0 };
@@ -418,6 +421,9 @@ export class Game {
     this.kioff = makeKioff();
     this.kioff.root.position.set(SPOT.kioff.x, 0, SPOT.kioff.z);
     this.scene.add(this.rick.root, this.king.root, this.trout.root, this.charig.root, this.kioff.root);
+    this.youngAllen = makeYoungAllen();
+    this.youngAllen.root.visible = false;
+    this.scene.add(this.youngAllen.root);
     this.cutGuppy = makePathGuppy();
     this.cutGuppy.hp.group.visible = false;
     this.cutGuppy.root.visible = false;
@@ -1380,6 +1386,14 @@ export class Game {
     this.trout.body.rotation.set(0, 0, 0);
     this.cutGuppy.root.visible = false;
     this.cutGuppy.root.rotation.set(0, 0, 0);
+    const Y = this.youngAllen;
+    Y.root.visible = false;
+    Y.root.rotation.set(0, 0, 0);
+    Y.root.position.y = 0;
+    Y.body.position.y = 0;
+    Y.head.rotation.set(0, 0, 0);
+    Y.armR.rotation.set(0, 0, 0);
+    Y.armL.rotation.set(0, 0, 0);
     this.cutProps.group.visible = false;
     this.cutProps.screen.visible = this.cutProps.tripod.visible = this.cutProps.lab.visible = false;
 
@@ -1984,8 +1998,11 @@ export class Game {
     const C = this.charig;
     const X = this.kioff;
     // the battlefield: the open grass inside the gate
-    /** Allen before the greed got him: kid-sized. */
+    /** Big Allen's size when he starts ballooning in the greed scene. */
     const YOUNG = 0.55;
+    /** Allen before the greed got him: a normal kid. */
+    const Y = this.youngAllen;
+    if (step >= 1 && step <= 3) A.root.visible = false;
     const bx = 0;
     const bz = 45;
 
@@ -2014,9 +2031,11 @@ export class Game {
       const run = charge > 0 && charge < 1 ? 9 : clash ? 4 : 0.3;
       // AL kids, south line, facing north (+z)
       trot(kModel, bx - 5, meet(bz - 7, bz - 1.4), 0, run, 0);
-      stomp(bx - 1.6, meet(bz - 8, bz - 2), 0, run > 1 ? T * 9 : 0, clash ? 0.5 + Math.sin(T * 12) * 0.5 : 0);
-      A.pivot.scale.setScalar(1);
-      A.root.scale.setScalar(YOUNG);
+      walkKid(Y, bx - 1.6, meet(bz - 7, bz - 1.2), 0, run, 6);
+      if (clash) {
+        Y.armR.rotation.x = -2.6 + Math.sin(T * 12) * 0.5;
+        Y.armL.rotation.x = -2.6 - Math.sin(T * 12) * 0.5;
+      }
       walkKid(C, bx + 1.6, meet(bz - 7, bz - 1.2), 0, run, 1);
       walkGuppy(bx + 4.2, meet(bz - 7, bz - 1.2), 0, run, 2);
       walkKid(R, bx + 6.6, meet(bz - 7, bz - 1.2), 0, run, 3);
@@ -2027,7 +2046,7 @@ export class Game {
       flopTrout(bx + 4.6, meet(bz + 7, bz + 1.6), -PI / 2, Math.abs(Math.sin(T * 7)) * (run > 1 ? 1.1 : 0.25));
       if (!clash) {
         // fists up in the standoff
-        for (const n of [C, R, X, K]) if (charge === 0) n.armR.rotation.x = -1.4 + Math.sin(T * 6) * 0.15;
+        for (const n of [C, R, X, K, Y]) if (charge === 0) n.armR.rotation.x = -1.4 + Math.sin(T * 6) * 0.15;
       } else if (Math.floor(T * 7) !== Math.floor((T - dt) * 7)) {
         const x = bx + (Math.random() - 0.5) * 12;
         this.parts.sparks(x, 1.5 + Math.random(), bz, 8, 0xffd23f, 6, 0.14, 0.4, { up: 1, grav: 8, hdr: 3, altColor: 0xffffff });
@@ -2063,7 +2082,7 @@ export class Game {
       const confused = span(2.0, 2.6) * (1 - span(3.6, 4.0));
       const leave = span(3.6, 4.8);
       const hop = (ph: number) => Math.max(0, Math.sin(T * 9 + ph)) * 0.6 * cheer;
-      const crew: [NpcModel, number, number][] = [[C, bx + 1.6, 1], [R, bx + 6.6, 3]];
+      const crew: [NpcModel, number, number][] = [[C, bx + 1.6, 1], [R, bx + 6.6, 3], [Y, bx - 1.6, 6]];
       for (const [n, x, ph] of crew) {
         walkKid(n, x - leave * 3, bz - 1.2 - leave * 7, lerp(0, PI + 0.3, leave), leave > 0 ? 6 : 0, ph);
         n.root.position.y = hop(ph);
@@ -2077,9 +2096,6 @@ export class Game {
       walkGuppy(bx + 4.2 - leave * 2, bz - 1.2 - leave * 7, lerp(0, PI, leave), leave > 0 ? 6 : 0, 2);
       G.root.position.y = hop(2);
       G.root.rotation.z = confused * 0.25;
-      stomp(bx - 1.6 - leave * 2, bz - 2 - leave * 7, lerp(0, PI, leave), leave > 0 ? T * 7 : 0, cheer);
-      A.root.scale.setScalar(YOUNG);
-      A.head.rotation.z = confused * 0.3;
       once('win', 0.3, () => {
         this.sfx.play('bell');
         this.parts.sparks(bx, 3, bz - 2, 40, 0xffd23f, 10, 0.18, 0.9, { up: 1, grav: 10, hdr: 4, altColor: 0x7df9ff });
@@ -2100,8 +2116,6 @@ export class Game {
       props.screen.visible = part === 0;
       props.tripod.visible = part === 1;
       props.lab.visible = part === 2;
-      A.pivot.scale.setScalar(1);
-      A.root.scale.setScalar(YOUNG);
       if (part === 0) {
         const sx = props.screen.position.x;
         const sz = props.screen.position.z;
@@ -2109,10 +2123,10 @@ export class Game {
         walkKid(C, sx - 1.1, sz + 2.2, PI, 0, 0);
         C.armR.rotation.x = C.armL.rotation.x = -1.2 + Math.sin(T * 30) * 0.08;
         C.body.position.y = Math.abs(Math.sin(T * 5)) * 0.05;
-        stomp(sx + 2.2, sz + 3.6, PI - 0.25, 0, 0);
-        A.armR.rotation.x = -1.3 + Math.sin(T * 28 + 1) * 0.1;
-        A.armL.rotation.x = -1.3 + Math.sin(T * 26) * 0.1;
-        A.jaw.scale.y = 1 + Math.abs(Math.sin(T * 5)) * 0.8; // laughing
+        walkKid(Y, sx + 1.1, sz + 2.2, PI, 0, 2);
+        Y.armR.rotation.x = -1.3 + Math.sin(T * 28 + 1) * 0.1;
+        Y.armL.rotation.x = -1.3 + Math.sin(T * 26) * 0.1;
+        Y.body.position.y = Math.abs(Math.sin(T * 7)) * 0.08; // laughing
         once('clicky', 0.2, () => this.sfx.play('truffle'));
         view = shot([
           [0, [sx - 0.8, 3.2, sz + 9], [sx, 2.2, sz]],
@@ -2125,9 +2139,11 @@ export class Game {
         walkKid(C, tx - 1.0, tz - 0.9, 0.4, 0, 0);
         C.armR.rotation.x = -1.5;
         C.body.position.y = Math.abs(Math.sin(T * 8)) * 0.1; // cracking up
-        stomp(tx + 0.4, tz + 5.5, PI, T * 10, 0.5 + Math.sin(T * 10) * 0.5);
-        A.root.rotation.y = PI + Math.sin(T * 6) * 0.6;
-        A.root.position.y = Math.max(0, Math.sin(T * 10)) * 0.5;
+        walkKid(Y, tx + 0.4, tz + 4.2, PI, 8, 0);
+        Y.root.rotation.y = PI + Math.sin(T * 6) * 0.6;
+        Y.root.position.y = Math.max(0, Math.sin(T * 10)) * 0.4;
+        Y.armR.rotation.x = -2.6 + Math.sin(T * 10) * 0.6;
+        Y.armL.rotation.x = -2.6 - Math.sin(T * 10) * 0.6;
         once('rec', 1.7, () => this.sfx.play('pop'));
         once('lol', 2.4, () => this.sfx.play('oink'));
         view = shot([
@@ -2142,12 +2158,13 @@ export class Game {
         props.brew.color.setHSL((T * 0.8) % 1, 0.9, 0.6);
         props.brew.emissive.copy(props.brew.color).multiplyScalar(0.5);
         walkKid(C, lx - 1.4, lz + 1.6, PI - 0.3, 0, 0);
-        stomp(lx + 2.6, lz + 3, PI + 0.5, 0, 0);
-        A.armR.rotation.x = -1.6; // pouring
+        walkKid(Y, lx + 1.5, lz + 1.6, PI + 0.3, 0, 0);
+        Y.armR.rotation.x = -1.6; // pouring
         const flinch = boom ? span(4.1, 4.4) : 0;
         C.root.position.z += flinch * 0.8;
         C.armL.rotation.x = C.armR.rotation.x = -2.6 * flinch;
-        A.armL.rotation.x = lerp(-0.35, -2.9, flinch);
+        Y.armL.rotation.x = -2.6 * flinch;
+        Y.root.position.z += flinch * 0.8;
         if (!boom && Math.random() < dt * 14) this.parts.motes(lx + 0.4, 2.0, lz, 1, 0xd8f0c8, 0.6, 0.15, 0.7, -1, 0.6, 0.2, 1.6);
         once('boom', 4.1, () => {
           this.sfx.play('pop');
@@ -2165,12 +2182,33 @@ export class Game {
       // GREED AND HUNGER: Allen eats the whole harvest, and the others show him the gate
       const eat = 1 - span(2.4, 2.8);
       const kick = span(2.6, 4.6);
-      const belly = 1 + span(0, 2.4) * 0.35;
-      A.pivot.scale.set(belly, 1 / Math.sqrt(belly), belly);
       const az = lerp(42, 62, kick);
-      stomp(0, az, kick > 0 ? PI : PI + Math.sin(T * 2) * 0.5, kick > 0 ? T * 6 : 0, 0);
-      A.root.scale.setScalar(lerp(YOUNG, 1, span(0.2, 2.4))); // growing with every bite
-      if (eat > 0) {
+      // first he's just a kid stuffing his face; then, with one gulp too many, he balloons
+      const grown = ct >= 1.3;
+      if (!grown) {
+        A.root.visible = false;
+        walkKid(Y, 0, az, PI + Math.sin(T * 2) * 0.5, 0, 0);
+        Y.armR.rotation.x = -2.2 - Math.abs(Math.sin(T * 9)) * 0.6;
+        Y.armL.rotation.x = -2.0 - Math.abs(Math.sin(T * 9 + 1)) * 0.6;
+        if (Math.floor(T * 5) !== Math.floor((T - dt) * 5)) {
+          this.sfx.play('chomp');
+          this.parts.emit(0, 2.5, az - 0.6, 6, [0xffd23f, 0xff8a3d, 0x7bd35a][Math.floor(T * 5) % 3], 3, 0.16, 0.45);
+        }
+      }
+      once('balloon', 1.3, () => {
+        this.sfx.play('pop');
+        this.sfx.play('roar');
+        this.parts.dust(0, 1.5, az, 14, 0xe2d3b8, { spread: 1.4, speed: 4, rise: 2, size0: 0.8, size1: 2.4, life: 0.7 });
+        this.shake = Math.max(this.shake, 0.35);
+      });
+      const belly = 1 + span(1.3, 2.4) * 0.35;
+      A.pivot.scale.set(belly, 1 / Math.sqrt(belly), belly);
+      if (grown) Y.root.visible = false;
+      if (grown) stomp(0, az, kick > 0 ? PI : PI + Math.sin(T * 2) * 0.5, kick > 0 ? T * 6 : 0, 0);
+      A.root.scale.setScalar(lerp(YOUNG, 1, span(1.3, 2.4))); // growing with every bite
+      if (!grown) {
+        /* the kid's still eating (above) */
+      } else if (eat > 0) {
         A.armR.rotation.x = -1.6 - Math.abs(Math.sin(T * 7)) * 1.2;
         A.jaw.scale.y = 1 + Math.abs(Math.sin(T * 12)) * 1.5;
         if (Math.floor(T * 4) !== Math.floor((T - dt) * 4)) {
