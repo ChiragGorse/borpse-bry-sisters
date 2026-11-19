@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.11',
+    date: '2026-11-19',
+    title: 'Allen Takes Charge',
+    changes: [
+      'Allen gets stunlocked far less: after a stun he resists light stuns for 10 seconds, heavy stuns in that window are much shorter, and his stagger bar only refills once he has recovered.',
+      'His stagger bar is bigger (more so in big herds), and a stagger is a little shorter.',
+      'Allen hits harder (+18%), while the kitchen brigade hits softer (-38%), comes in smaller waves, and comes less often. Allen now does most of the damage, not his bots.',
+    ],
+  },
+  {
     version: 'Beta 0.10',
     date: '2026-11-19',
     title: 'Menus & Settings',

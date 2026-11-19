@@ -79,6 +79,17 @@ function mulberry32(seed: number) {
 }
 
 export const MAX_SQUAD = HOG_NAMES.length;
+
+/* balance: Allen does the heavy lifting, the kitchen brigade backs him up */
+/** Allen's damage on top of each course's numbers. */
+const ALLEN_DMG = 1.18;
+/** Kitchen bots' damage, and how much longer between their waves. */
+const KITCHEN_DMG = 0.62;
+const KITCHEN_WAVE_GAP = 1.3;
+/** Seconds after a stun when Allen resists light stuns and his stagger bar won't fill. */
+const STUN_IMMUNITY = 10;
+/** Heavy (forced) stuns in that window last only this share of their usual time. */
+const STUN_RECOVERING = 0.35;
 export const MAX_PLAYERS = 8;
 export const HOG_TINTS = [0xf2b38a, 0xe8a0b4, 0xffc9a8, 0xd9a0a0, 0xf7d0b0, 0xe9b9d9];
 /** Skin colours for players 1..8 (player 1 is the classic pink Kenji). */
@@ -930,7 +941,7 @@ export class Sim {
     // a bigger herd faces a heartier Allen
     A.hp = A.maxHp = Math.round(c.hp * this.hpScale());
     A.state = 'enter';
-    A.poiseMax = (125 + 32 * this.course) * (1 + 0.25 * (this.players.length - 1));
+    A.poiseMax = (150 + 40 * this.course) * (1 + 0.4 * (this.players.length - 1));
     A.cdSlam = 2.2;
     A.cdThrow = 2.8;
     A.cdDash = 4.5;
@@ -2813,9 +2824,14 @@ export class Sim {
     const A = this.A;
     if (!A.active || A.hp <= 0) return;
     if (['defeated', 'leaving', 'ko', 'calling', 'gone', 'slamAir', 'spin', 'backrooms'].includes(A.state) || A.shielded) return;
-    if (!force && A.stunImmune > 0) {
-      this.floatText(A.x, 5.2, A.z, 'RESISTED', 'info');
-      return;
+    if (A.stunImmune > 0) {
+      // fresh out of a stun he shrugs off the light stuff, and even big hits only rattle him briefly
+      if (!force) {
+        this.floatText(A.x, 5.2, A.z, 'RESISTED', 'info');
+        return;
+      }
+      dur = Math.max(0.5, dur * STUN_RECOVERING);
+      this.floatText(A.x, 5.2, A.z, 'SHRUGGED IT OFF', 'info');
     }
     this.setA('stunned');
     A.stunDur = dur;
@@ -2948,14 +2964,15 @@ export class Sim {
         this.recover(0.5);
       }
     }
-    if (A.state !== 'stunned' && A.state !== 'slamAir' && A.state !== 'dash') {
+    // the stagger bar only fills once he's over his last stun
+    if (A.state !== 'stunned' && A.state !== 'slamAir' && A.state !== 'dash' && A.stunImmune <= 0) {
       A.poise += poise;
       A.poiseDelay = 1.6;
       if (A.poise >= A.poiseMax) {
         this.floatText(A.x, 5.6, A.z, 'STAGGERED!', 'crit');
         this.fx.hitBurst(A.x, A.y + 3.2, A.z, 0xffe14d, 1.9);
         this.fx.shockWall(A.x, 0.1, A.z, 0xffe14d, 1.2, 6.4, 0.8, 3.2, 0.4, 8);
-        this.stunAllen(1.8, true);
+        this.stunAllen(1.5, true);
       }
     }
     return true;
@@ -3184,7 +3201,7 @@ export class Sim {
   /** Kitchen bots allowed at once: a bigger herd faces a bigger brigade. */
   private maxBots() {
     const c = COURSES[Math.min(this.course, COURSES.length - 1)];
-    return c.maxBots + Math.floor((this.players.length - 1) * 0.75);
+    return Math.max(2, c.maxBots - 1) + Math.floor((this.players.length - 1) * 0.6);
   }
 
   /** Spawns a mixed squad from the current course's kitchen roster (either beside Allen or marching in from the gate). */
@@ -3366,7 +3383,8 @@ export class Sim {
     const lure = ctl ? null : this.nearestDecoy(A.x, A.z, 40);
     const k = ctl ? this.allenAim(ctl) : (lure ? { x: lure.x, z: lure.z, vx: 0, vz: 0 } : this.allenTarget());
     if (!k) return;
-    const c0 = COURSES[Math.min(this.course, COURSES.length - 1)];
+    const cBase = COURSES[Math.min(this.course, COURSES.length - 1)];
+    const c0 = { ...cBase, dmg: cBase.dmg * ALLEN_DMG };
     // Tilted (after Smash Battles): faster, harder-hitting, quicker wind-ups
     const c = A.tilt > 0 ? { ...c0, dmg: c0.dmg * 1.3, speed: c0.speed * 1.25, tele: c0.tele * 0.85 } : c0;
     if (A.tilt > 0) {
@@ -3400,10 +3418,10 @@ export class Sim {
     if (!kDead && A.hp > 0 && !['enter', 'defeated', 'leaving', 'ko', 'calling'].includes(A.state)) {
       this.waveT -= dt;
       if (this.waveT <= 0) {
-        this.waveT = c.waveCd * (A.enraged ? 0.8 : 1);
+        this.waveT = c.waveCd * KITCHEN_WAVE_GAP * (A.enraged ? 0.8 : 1);
         if (this.bots.length < maxBots - 1) {
-          const extra = Math.floor((this.players.length - 1) / 2);
-          const count = Math.min(c.bots + extra, maxBots - this.bots.length, 2 + Math.floor(this.course / 3) + extra);
+          const extra = Math.floor((this.players.length - 1) / 3);
+          const count = Math.min(Math.max(1, c.bots - 1) + extra, maxBots - this.bots.length, 1 + Math.floor(this.course / 3) + extra);
           this.spawnBots(count, true);
         }
       }
@@ -3678,7 +3696,7 @@ export class Sim {
       case 'summon': {
         if (!A.summoned && A.t >= 0.45) {
           A.summoned = true;
-          this.spawnBots(c.bots + Math.floor((this.players.length - 1) / 2));
+          this.spawnBots(Math.max(1, c.bots - 1) + Math.floor((this.players.length - 1) / 3));
           this.say(
             'Allen',
             this.pick([
@@ -3847,7 +3865,7 @@ export class Sim {
       }
       case 'stunned': {
         if (A.t >= A.stunDur) {
-          A.stunImmune = 6.5;
+          A.stunImmune = STUN_IMMUNITY;
           A.globalCd = 0.45;
           this.setA('chase');
           if (A.tiltQueued) {
@@ -4607,7 +4625,9 @@ export class Sim {
   }
 
   private updateBots(dt: number) {
-    const c = COURSES[Math.min(this.course, COURSES.length - 1)];
+    // the kitchen brigade backs Allen up; it shouldn't out-fight him
+    const c0 = COURSES[Math.min(this.course, COURSES.length - 1)];
+    const c = { ...c0, dmg: c0.dmg * KITCHEN_DMG };
     const anyAlive = this.living().length > 0;
 
     for (const b of [...this.bots]) {
