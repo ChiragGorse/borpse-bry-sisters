@@ -41,10 +41,12 @@ for (const [idx, id, npc] of shop) {
 }
 
 const events = new Map<string, number>();
+let bought = 0;
 let steps = 0;
 let forest: 'todo' | 'going' | 'there' | 'done' = 'todo';
 let forestT = 0;
 let maxBots = 0;
+const shopOpen = new Map<number, number>();
 let lastCourse = -1;
 let lastMode = sim.mode;
 const log = (s: string) => console.log(`[${(sim.time / 60).toFixed(1).padStart(4)}m] ${s}`);
@@ -97,9 +99,13 @@ while (sim.time < minutes * 60 && !sim.outcome) {
   for (const e of sim.drainEvents()) {
     const key = e.t === 'vfx' ? `vfx.${e.m}` : e.t === 'sfx' ? `sfx.${e.n}` : e.t;
     events.set(key, (events.get(key) ?? 0) + 1);
+    if (key === 'sfx.buy') bought++;
   }
-  // shops must not stay open during a scripted run
-  for (const p of sim.players) if (p.shopNpc) sim.closeShop(p.id);
+  // bots go shopping between courses, but must never leave a shop hanging open
+  for (const p of sim.players) {
+    shopOpen.set(p.id, p.shopNpc ? (shopOpen.get(p.id) ?? 0) + DT : 0);
+    if ((shopOpen.get(p.id) ?? 0) > 10) throw new Error(`player ${p.id} left ${p.shopNpc}'s shop open`);
+  }
   maxBots = Math.max(maxBots, sim.bots.length);
   if (sim.course !== lastCourse) {
     lastCourse = sim.course;
@@ -118,6 +124,7 @@ log(`finished: outcome=${sim.outcome ?? 'still playing'} over=${sim.overReason ?
 log(`stats ${JSON.stringify(sim.stats)} · peak bots ${maxBots}`);
 const top = [...events.entries()].sort((a, b) => b[1] - a[1]);
 console.log(`events (${top.reduce((a, [, n]) => a + n, 0)} total): ${top.slice(0, 14).map(([k, n]) => `${k}=${n}`).join(' ')}`);
+console.log(`the bots bought ${bought} upgrades on their own`);
 console.log(`${steps} steps (${(steps * DT / 60).toFixed(1)} sim-minutes) in ${((Date.now() - t0) / 1000).toFixed(1)}s wall time`);
 if (forest !== 'done') throw new Error(`forest trip did not complete (state: ${forest})`);
 if (sim.stats.dealt <= 0) throw new Error('the herd never landed a hit');

@@ -3,6 +3,7 @@
  * rendering, DOM or audio. The browser view (../Game.ts) and a future multiplayer server both drive it by
  * calling `step(dt, inputs)` and presenting `drainEvents()` plus the public state.
  */
+import { PathFollower } from './nav';
 import { COURSES, EARWHEN, EARWHEN_STAGES, FINALE, LAST_COURSE, earwhenStage, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
 import type { SfxName } from '../audio';
 import {
@@ -316,6 +317,8 @@ export class Sim {
   private huntedCourse = -1;
   /** Seconds until Path Guppy's next jump scare. */
   private scareT = 0;
+  /** Herb's route to wherever he's leading the herd. */
+  private herbNav = new PathFollower();
   /** Seconds until an Earwhen stage he fought alone counts as cleared. */
   private clearT = 0;
   /** Kitchen waves Earwhen calls in during his solo stages. */
@@ -5722,9 +5725,18 @@ export class Sim {
         if (!this.subtitle) this.say('Herb', this.pick(['Over here! Follow the light!', "Don't wander off, it's dark out there!", 'This way, this way!']), 2.6);
       }
     } else if (dT > 1.4) {
-      angle = Math.atan2(tx - w.x, tz - w.z);
+      // follow a planned route round the trees and rocks, not a straight line into them
+      const wp = this.herbNav.next(this.colliders(), FOREST_BOUND - 2, w.x, w.z, tx, tz, dt);
+      angle = Math.atan2(wp.x - w.x, wp.z - w.z);
       sp = dK > 7 ? 3.2 : 5.4;
       w.spotted = false;
+      if (this.herbNav.stuck > 2.5) {
+        // truly wedged: squeeze him past whatever's holding him
+        const free = this.safePosition(w.x + Math.sin(angle) * 2, w.z + Math.cos(angle) * 2, 0.8);
+        w.x = free.x;
+        w.z = free.z;
+        this.herbNav.reset();
+      }
     } else if (!this.hunt.done) {
       // at the cache: nose down, digging
       if (!w.spotted) {

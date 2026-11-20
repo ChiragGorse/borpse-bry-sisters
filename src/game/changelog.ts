@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.16',
+    date: '2026-11-20',
+    title: 'Smarter Pigs',
+    changes: [
+      'Herb no longer gets stuck on trees and rocks in Folk Valley: he plans a path round them (and squeezes free if he ever does get wedged).',
+      'Bot pigs find their way round fences, buildings and the lake instead of walking into them.',
+      'Between courses, bot pigs go shopping: they walk up to a shopkeeper and buy a random upgrade the herd can afford, always leaving a good share of the truffles for everyone else. They only pick up truffles lying nearby.',
+      "Bot pigs dodge: they jump Allen's shockwaves on time, get out of his swipe arc (or roll through it), sidestep his dash, chopsticks and cream pellets, clear the landing rings of chili, Mega Dollops and burning robots, and stay out of puddles, Tenderizer slams, Skewer Hound lunges and Kettle Bomber blasts.",
+      "They pile in when Allen is stunned or winded, hit him from behind while he swings at someone else, swat bots that are chewing on them before going for the sauce jars, and use the herd's abilities sensibly (a potion when hurt, Smash Battles when Allen can be stunned, the squeal when surrounded).",
+    ],
+  },
+  {
     version: 'Beta 0.15',
     date: '2026-11-20',
     title: 'The Tickling of Earwhen',
