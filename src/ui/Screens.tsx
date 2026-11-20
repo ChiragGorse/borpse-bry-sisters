@@ -6,6 +6,7 @@ import { Key, Keys, Portrait } from './Hud';
 import { bindLabel } from '../game/keybinds';
 import { GAME_VERSION } from '../game/changelog';
 import { changelogUnseen } from './Changelog';
+import { VolumeSliders } from './VolumeSliders';
 
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -556,7 +557,9 @@ export function PauseScreen({
   note,
   loadout,
   onReturnFarm,
+  onSfxPreview,
 }: {
+  onSfxPreview?: () => void;
   muted: boolean;
   pad?: PadLayout;
   disconnected?: boolean;
@@ -597,6 +600,9 @@ export function PauseScreen({
             <button type="button" onClick={onMute} aria-pressed={muted} className="btn bg-white px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide">
               Sound: {muted ? 'off' : 'on'}
             </button>
+          </div>
+          <div className="rounded-xl border-[2.5px] border-ink bg-white px-3 py-2.5">
+            <VolumeSliders compact onSfxPreview={onSfxPreview} />
           </div>
           {actions.length > 0 && (
             <div className={`grid gap-2 ${actions.length > 1 ? 'grid-cols-2' : ''}`}>

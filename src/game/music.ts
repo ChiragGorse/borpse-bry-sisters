@@ -6,6 +6,8 @@
  * single-file game page stays small. If they are missing (e.g. a page opened from somewhere without
  * them), the game just plays without music.
  */
+import { getVolume } from './volume';
+
 export type MusicMood = 'farm' | 'forest' | 'fight';
 
 const FARM_TRACKS = ['music/ballad.mp3', 'music/island.mp3'];
@@ -77,7 +79,8 @@ export class Music {
 
   private apply(t: Track) {
     const duck = this.duckT > 0 ? 0 : 1;
-    t.el.volume = Math.max(0, Math.min(1, this.muted ? 0 : t.level * t.level * VOLUME * duck));
+    const slider = getVolume().music;
+    t.el.volume = Math.max(0, Math.min(1, this.muted ? 0 : t.level * t.level * VOLUME * duck * slider * slider));
   }
 
   /** Cut the music for a few seconds (it comes back on its own). */

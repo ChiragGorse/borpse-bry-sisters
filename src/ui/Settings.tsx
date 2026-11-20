@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { VolumeSliders } from './VolumeSliders';
 import { BIND_ACTIONS, MAX_KEYS, assignKey, clearKey, getBinds, keyLabel, onBindsChange, resetBinds, setBinds, type BindAction } from '../game/keybinds';
 
 const GFX_LABEL = { high: 'Cinematic', medium: 'Balanced', low: 'Fast' } as const;
@@ -15,7 +16,9 @@ export function SettingsDialog({
   onMute,
   gfx,
   onGraphics,
+  onSfxPreview,
 }: {
+  onSfxPreview?: () => void;
   onClose: () => void;
   touch: boolean;
   /** Close settings and drag the touch buttons around. */
@@ -98,8 +101,13 @@ export function SettingsDialog({
           </button>
         </div>
 
+        <section aria-label="Volume" className="mt-4 rounded-xl border-[2.5px] border-ink bg-white p-3">
+          <h3 className="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ink/55">Volume</h3>
+          <VolumeSliders onSfxPreview={onSfxPreview} />
+        </section>
+
         {(onMute || onGraphics) && (
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {onMute && (
               <button type="button" onClick={onMute} aria-pressed={muted} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide">
                 Sound: {muted ? 'off' : 'on'}

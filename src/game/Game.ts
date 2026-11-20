@@ -54,6 +54,7 @@ import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
 import { SCARE_FACE_SVG } from '../ui/scareFace';
 import { bindLabel, translate, type BindAction } from './keybinds';
+import { onVolumeChange } from './volume';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
 import { COIL, FOREST_BOUND, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
@@ -269,6 +270,7 @@ export class Game {
   /** The settings dialog is open over the pause menu (Esc closes it, not the pause). */
   settingsOpen = false;
   private skyArea: Area = 'farm';
+  private offVolume: (() => void) | null = null;
   /** Hog Hunt lighting: Herb's lantern and a faint glow round your own pig (off on the farm). */
   private herbLight = new THREE.PointLight(0xffb04a, 0, 22, 1.6);
   private pigLight = new THREE.PointLight(0xc8d4ff, 0, 11, 1.6);
@@ -739,6 +741,8 @@ export class Game {
 
   private bind() {
     window.addEventListener('keydown', this.onKeyDown);
+    // the volume sliders apply straight away
+    this.offVolume = onVolumeChange(() => this.sfx.applyVolume());
     // any click or key starts the music (browsers block sound until then)
     this.sfx.onUnlock = () => this.music.unlock();
     window.addEventListener('pointerdown', this.onAnyGesture);
@@ -777,6 +781,7 @@ export class Game {
     this.parts.dispose();
     this.sfx.dispose();
     this.music.dispose();
+    this.offVolume?.();
     this.gfx.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -1143,6 +1148,12 @@ export class Game {
       this.frameMs = 16;
       this.applyQuality(this.gfx.quality === 'high' ? 'medium' : 'low');
     }
+  }
+
+  /** A quick sound so the sound-effects slider can be judged by ear. */
+  previewSfx() {
+    this.sfx.unlock();
+    this.sfx.play('oink');
   }
 
   toggleMute() {

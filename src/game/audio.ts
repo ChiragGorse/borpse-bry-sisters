@@ -1,3 +1,4 @@
+import { getVolume } from './volume';
 export type SfxName =
   | 'swing'
   | 'oink'
@@ -54,7 +55,7 @@ export class Sfx {
           (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         this.ctx = new AC();
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.muted ? 0 : 0.45;
+        this.master.gain.value = this.level();
         this.master.connect(this.ctx.destination);
         const len = this.ctx.sampleRate;
         this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -67,9 +68,20 @@ export class Sfx {
     if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
+  /** Master loudness: 0.45 at full, scaled by the sound-effects slider. */
+  private level() {
+    const v = getVolume().sfx;
+    return this.muted ? 0 : 0.45 * v * v;
+  }
+
+  /** Picks up a change to the sound-effects slider. */
+  applyVolume() {
+    if (this.master) this.master.gain.value = this.level();
+  }
+
   setMuted(m: boolean) {
     this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.45;
+    this.applyVolume();
   }
 
   dispose() {

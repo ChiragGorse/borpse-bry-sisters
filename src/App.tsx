@@ -177,6 +177,7 @@ export default function App() {
           onResume={() => game.current?.resume()}
           onMute={() => game.current?.toggleMute()}
           onSettings={() => setSettings(true)}
+          onSfxPreview={() => game.current?.previewSfx()}
           actions={runActions(true)}
           loadout={hud.allen ? undefined : { actives: hud.actives, owned: hud.owned, onAssign: (slot, id) => game.current?.setLoadoutSlot(slot, id) }}
           note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : undefined}
@@ -193,6 +194,7 @@ export default function App() {
           onMute={() => game.current?.toggleMute()}
           gfx={hud.gfx}
           onGraphics={() => game.current?.cycleGraphics()}
+          onSfxPreview={() => game.current?.previewSfx()}
           onEditTouch={
             screen === 'paused' || screen === 'title'
               ? () => {

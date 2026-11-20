@@ -16,6 +16,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: 'Folk Valley',
     changes: [
       'Slopwood Forest is now called Folk Valley.',
+      'Separate volume sliders for music and sound effects, in the pause menu and Settings (saved on your device).',
       'Folk Valley has anomalies. Every so often something happens that only you see: a pale, impossibly tall figure watching from the trees (it is gone when you get close); a pig that looks just like Herb but has no lantern, and turns its head all the way round when you approach; the lanterns guttering out while footsteps pass by; little lights that drift away and want you to follow; whispers; the picture tearing; the music suddenly stopping.',
     ],
   },
