@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.17',
+    date: '2026-11-20',
+    title: 'Saved Games',
+    changes: [
+      'Your progress now saves on this browser. Between courses the game saves which course is next, your truffles, upgrades, the state of the farm, your ability slots and herd size.',
+      'The title screen shows Continue with your next course, truffles and upgrades. New Game asks before it replaces your save, and you can delete the save from the title screen.',
+      'Lose a course and quit? Continue picks up from the break before it. Beat Earwhen and the save is cleared for a fresh run.',
+      'Saving is for solo games (with or without bot pigs). Online rooms and playing as Allen don\u2019t save.',
+    ],
+  },
+  {
     version: 'Beta 0.16',
     date: '2026-11-20',
     title: 'Smarter Pigs',

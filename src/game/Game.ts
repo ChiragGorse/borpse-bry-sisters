@@ -64,6 +64,8 @@ import type { GameSim } from './sim/gameSim';
 import { NetClient, defaultServerUrl, type NetStatus } from './net/NetClient';
 import type { NetSim } from './net/NetSim';
 import { BotBrain } from './sim/botBrain';
+import { clearSave, loadSave, writeSave, type SaveData } from './save';
+import { GAME_VERSION } from './changelog';
 import { ALLEN_ID, BTN, type EarwhenBot, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
 
 const PI = Math.PI;
@@ -337,6 +339,8 @@ export class Game {
   /** Which active ability sits in each of the six slots (this browser's choice). */
   private loadout: (ActiveId | null)[] = Array(LOADOUT_SLOTS).fill(null);
   private knownActives = new Set<ActiveId>();
+  /** Seconds until the next autosave check. */
+  private saveT = 2;
 
   constructor(container: HTMLElement, onHud: (s: HudState) => void, opts: GameOptions = {}) {
     this.container = container;
@@ -1173,7 +1177,8 @@ export class Game {
     this.emit();
   }
 
-  start() {
+  /** Starts a run: a fresh one, or (solo) carrying on from progress saved in this browser. */
+  start(save?: SaveData) {
     this.sfx.unlock();
     if (this.online) {
       // online, the server starts the run (host only) and every browser follows its lead
@@ -1182,8 +1187,10 @@ export class Game {
       return;
     }
     // the opening story is Kenji's; a person playing Allen goes straight in
+    if (save) this.role = 'pig';
     this.localSim.setAllenPlayer(this.role === 'allen');
-    this.sim.start({ opening: this.role === 'pig' && this.localSim.players.length <= 1 });
+    if (save) this.localSim.resume(save);
+    else this.sim.start({ opening: this.role === 'pig' && this.localSim.players.length <= 1 });
     this.restoreCinematicActors();
     this.controllerDisconnected = false;
     this.screen = 'play';
@@ -1193,6 +1200,17 @@ export class Game {
     this.cut = { step: -1, fired: new Set(), eaten: 0 };
     this.loadout = Array(LOADOUT_SLOTS).fill(null);
     this.knownActives.clear();
+    if (save) {
+      // put the saved ability slots back (only abilities the herd still owns)
+      save.loadout.slice(0, LOADOUT_SLOTS).forEach((id, i) => {
+        const a = ACTIVE_IDS.find((x) => x === id);
+        if (a && this.sim.levels[a] > 0) {
+          this.loadout[i] = a;
+          this.knownActives.add(a);
+        }
+      });
+    }
+    this.saveT = 2;
     this.processEvents();
     this.lock();
     this.emit();
@@ -1596,9 +1614,26 @@ export class Game {
     this.updateSky(dt);
     this.updateForestMood(dt);
     this.updateMusic();
+    this.autosave(dt);
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);
   };
+
+  /** Saves a solo run's progress in this browser every couple of seconds between courses; a won run clears it. */
+  private autosave(dt: number) {
+    if (this.online) return;
+    this.saveT -= dt;
+    if (this.saveT > 0) return;
+    this.saveT = 2;
+    if (this.screen !== 'play' && this.screen !== 'paused' && this.screen !== 'shop' && this.screen !== 'victory') return;
+    if (this.sim.outcome === 'victory') {
+      if (loadSave()) clearSave();
+      return;
+    }
+    const p = this.localSim.progress();
+    if (!p) return;
+    writeSave({ ...p, at: Date.now(), version: GAME_VERSION, loadout: [...this.loadout], bots: this.botIds.length });
+  }
 
   /** Farm songs normally, the forest song in the forest, and the fight song from the dinner bell until Allen is beaten (or the farm falls). */
   private updateMusic() {

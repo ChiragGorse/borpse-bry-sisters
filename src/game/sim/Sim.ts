@@ -4,6 +4,7 @@
  * calling `step(dt, inputs)` and presenting `drainEvents()` plus the public state.
  */
 import { PathFollower } from './nav';
+import type { SaveData } from '../save';
 import { COURSES, EARWHEN, EARWHEN_STAGES, FINALE, LAST_COURSE, earwhenStage, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
 import type { SfxName } from '../audio';
 import {
@@ -593,6 +594,57 @@ export class Sim {
     this.outcome = null;
     this.greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
     this.showBanner('ONE MORE TRY', `Ring the bell when you're ready for Course ${this.course + 1}`);
+    this.dirty = true;
+  }
+
+  /**
+   * The run's progress, for saving in the browser, or null when this isn't a good moment to save
+   * (anywhere but the farm between courses, a person playing Allen, or the run is over).
+   */
+  progress(): Omit<SaveData, 'at' | 'version' | 'loadout' | 'bots'> | null {
+    if (this.area !== 'farm' || this.mode !== 'intermission' || this.opening || this.outcome || this.overReason || this.hunt || this.allenPlayer || this.A.active) return null;
+    return {
+      v: 1,
+      course: this.course,
+      truffles: this.truffles,
+      levels: { ...this.levels },
+      repairCount: this.repairCount,
+      edibleHp: this.edibles.map((e) => Math.round(e.hp * 10) / 10),
+      squad: this.allies.filter((a) => a.dying <= 0 && a.hp > 0).map((a) => ({ name: a.name, tint: a.tint, hp: a.hp, maxHp: a.maxHp })),
+      stats: { ...this.stats },
+      huntedCourse: this.huntedCourse,
+    };
+  }
+
+  /** Starts a run from saved progress: the farm between courses, ready to ring the bell for the next one. */
+  resume(d: Omit<SaveData, 'at' | 'version' | 'loadout' | 'bots'>) {
+    this.start({ opening: false });
+    this.course = clamp(Math.floor(d.course), 0, LAST_COURSE);
+    this.tod = Math.min(this.course, 7);
+    this.truffles = Math.max(0, Math.floor(d.truffles));
+    const lv = emptyLevels();
+    for (const u of UPGRADES) {
+      const n = d.levels[u.id];
+      if (Number.isFinite(n)) lv[u.id] = clamp(Math.floor(n as number), 0, u.repeatable ? 0 : maxLevel(u));
+    }
+    this.levels = lv;
+    this.repairCount = Math.max(0, Math.floor(d.repairCount) || 0);
+    this.edibles.forEach((e, i) => {
+      const hp = d.edibleHp?.[i];
+      if (Number.isFinite(hp)) e.hp = clamp(hp, 0, e.maxHp);
+      this.refreshEdible(e);
+    });
+    (d.squad ?? []).forEach((sv, i) => {
+      this.spawnAllyPig(SPOT.start.x + (i - 2) * 1.4, SPOT.start.z + 2.4, PI, sv.tint, sv.name, sv.hp, sv.maxHp);
+    });
+    if (d.stats) this.stats = { ...this.stats, ...d.stats };
+    this.huntedCourse = Number.isFinite(d.huntedCourse) ? d.huntedCourse : -1;
+    this.applyStats(true);
+    const finale = this.course >= FINALE;
+    const next = finale ? `Earwhen ${earwhenStage(this.course) + 1}/${EARWHEN_STAGES.length}` : `Course ${this.course + 1}: ${COURSES[this.course].name}`;
+    this.subtitle = null;
+    this.showBanner('WELCOME BACK', `${next} · ring the bell when you're ready`);
+    this.say('Rickley', "Back again? Good. That Hwang fella ain't gone nowhere.", 4);
     this.dirty = true;
   }
 

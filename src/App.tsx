@@ -10,6 +10,7 @@ import { navigatePadMenu } from './ui/gamepadMenu';
 import { MobileControls } from './ui/MobileControls';
 import { useTouchDevice } from './ui/useTouchDevice';
 import { displayAddress, type NetStatus } from './game/net/NetClient';
+import { clearSave, loadSave, type SaveData } from './game/save';
 
 const initialBots = (() => {
   const q = Number(new URLSearchParams(window.location.search).get('bots'));
@@ -82,6 +83,8 @@ export default function App() {
     game.current?.setMinimap(el);
   }, []);
   const start = useCallback(() => game.current?.start(), []);
+  // progress saved in this browser, re-read whenever the title screen comes back
+  const [save, setSave] = useState<SaveData | null>(loadSave);
   const buy = useCallback((id: UpgradeId) => game.current?.buy(id), []);
 
   const [settings, setSettingsState] = useState(false);
@@ -95,6 +98,9 @@ export default function App() {
   }, [settings, editTouch]);
 
   const screen = hud?.screen;
+  useEffect(() => {
+    if (screen === 'title') setSave(loadSave());
+  }, [screen]);
   const onlinePlay = net?.state === 'playing';
   const host = onlinePlay && net!.host;
   const toMenu = () => game.current?.toMenu();
@@ -164,6 +170,19 @@ export default function App() {
           onRole={setRole}
           online={{ defaultServer, status: net, onJoin: joinOnline, onLeave: leaveOnline, onAllen: chooseAllen }}
           onStart={start}
+          save={save}
+          onContinue={() => {
+            const d = loadSave();
+            if (!d) return setSave(null);
+            setRoleState('pig');
+            game.current?.setRole('pig');
+            setBots(Math.min(7, Math.max(0, d.bots | 0)));
+            game.current?.start(d);
+          }}
+          onDeleteSave={() => {
+            clearSave();
+            setSave(null);
+          }}
           onSettings={() => setSettings(true)}
           onChangelog={() => setChangelog(true)}
         />}
@@ -180,7 +199,7 @@ export default function App() {
           onSfxPreview={() => game.current?.previewSfx()}
           actions={runActions(true)}
           loadout={hud.allen ? undefined : { actives: hud.actives, owned: hud.owned, onAssign: (slot, id) => game.current?.setLoadoutSlot(slot, id) }}
-          note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : undefined}
+          note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : hud.allen ? undefined : 'Your progress saves on this browser between courses. Pick it up again with Continue on the title screen.'}
           onReturnFarm={hud.area === 'forest' ? () => game.current?.returnToFarm() : undefined}
         />
       )}

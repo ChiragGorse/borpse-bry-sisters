@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { serverAddress, type NetStatus } from '../game/net/NetClient';
-import { ACTIVE_INFO, type ActiveId, type HudState } from '../game/data';
+import { ACTIVE_INFO, EARWHEN_STAGES, FINALE, earwhenStage, type ActiveId, type HudState } from '../game/data';
+import type { SaveData } from '../game/save';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
 import { ConnectionBadge, Key, Keys, Portrait } from './Hud';
 import { bindLabel } from '../game/keybinds';
@@ -260,6 +261,15 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
   );
 }
 
+/** "Course 4: Dim Sum Blitz · 320 truffles · 7 upgrades · saved 2 h ago" */
+function saveSummary(d: SaveData): string {
+  const next = d.course >= FINALE ? `Earwhen ${earwhenStage(d.course) + 1}/${EARWHEN_STAGES.length}` : `Course ${d.course + 1}`;
+  const owned = Object.values(d.levels).reduce((a: number, n) => a + (n ?? 0), 0);
+  const mins = Math.max(0, Math.round((Date.now() - d.at) / 60000));
+  const ago = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : mins < 60 * 24 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} days ago`;
+  return `${next} · ${d.truffles} truffles · ${owned} upgrade${owned === 1 ? '' : 's'} · saved ${ago}`;
+}
+
 export function TitleScreen({
   portraits,
   pad,
@@ -272,7 +282,14 @@ export function TitleScreen({
   onStart,
   onSettings,
   onChangelog,
+  save,
+  onContinue,
+  onDeleteSave,
 }: {
+  /** Progress saved in this browser, offered as "Continue". */
+  save?: SaveData | null;
+  onContinue?: () => void;
+  onDeleteSave?: () => void;
   onSettings?: () => void;
   onChangelog?: () => void;
   role?: 'pig' | 'allen';
@@ -287,6 +304,8 @@ export function TitleScreen({
 }) {
   const inRoom = online?.status && (online.status.state === 'lobby' || online.status.state === 'connecting');
   const waiting = inRoom && !online!.status!.host;
+  // a saved solo run can be picked up again (not from inside an online room, and not as Allen)
+  const resumable = !!save && !!onContinue && !inRoom && role === 'pig';
   const cast: { id: string; name: string; line: string; bg: string }[] = [
     { id: 'kenji', name: 'Kenji', line: 'You. A pig with a grudge.', bg: 'bg-pig' },
     { id: 'rickley', name: 'Rickley', line: 'Farmer. Trades truffles for grit.', bg: 'bg-[#ffe9b8]' },
@@ -324,16 +343,29 @@ export function TitleScreen({
         </header>
 
         <div className="rise-in flex flex-wrap items-center gap-4 [animation-delay:120ms]">
-          <button
-            type="button"
-            onClick={onStart}
-            autoFocus
-            data-pad-default
-            disabled={!!waiting || online?.status?.state === 'connecting'}
-            className="btn bg-mustard px-7 py-3.5 font-display text-2xl leading-none text-ink disabled:opacity-60"
-          >
-            {waiting ? 'WAITING FOR HOST' : 'DEFEND THE FARM'}
-          </button>
+          {resumable ? (
+            <>
+              <button type="button" onClick={onContinue} autoFocus data-pad-default className="btn flex flex-col items-start bg-mustard px-7 py-3 text-left text-ink">
+                <span className="font-display text-2xl leading-none">CONTINUE</span>
+                <span className="mt-1 text-xs font-extrabold uppercase tracking-wide text-ink/70">{saveSummary(save!)}</span>
+              </button>
+              <ConfirmButton
+                action={{ label: 'New game', confirm: 'Sure? Replaces your save', onPress: onStart }}
+                className="btn bg-paper px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-ink"
+              />
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onStart}
+              autoFocus
+              data-pad-default
+              disabled={!!waiting || online?.status?.state === 'connecting'}
+              className="btn bg-mustard px-7 py-3.5 font-display text-2xl leading-none text-ink disabled:opacity-60"
+            >
+              {waiting ? 'WAITING FOR HOST' : 'DEFEND THE FARM'}
+            </button>
+          )}
           {onSettings && (
             <button type="button" onClick={onSettings} className="btn bg-paper px-4 py-2.5 text-sm font-extrabold uppercase tracking-wide text-ink">
               Settings
@@ -387,6 +419,16 @@ export function TitleScreen({
             ))}
             <span className="text-xs font-medium text-paper/75">{role === 'allen' ? 'Bot pigs fight you · eat the farm or flatten them all' : 'Bot pigs fight beside you'}</span>
           </fieldset>
+        )}
+
+        {resumable && onDeleteSave && (
+          <p className="-mt-2 text-xs font-medium text-paper/70">
+            Your progress saves on this browser between courses.{' '}
+            <ConfirmButton
+              action={{ label: 'Delete save', confirm: 'Sure? This can\u2019t be undone', onPress: onDeleteSave }}
+              className="rounded px-1 font-bold text-mustard underline underline-offset-2"
+            />
+          </p>
         )}
 
         <ul className="rise-in grid max-w-[740px] grid-cols-2 gap-2 [animation-delay:220ms] sm:grid-cols-5" aria-label="Cast">
