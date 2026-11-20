@@ -156,6 +156,7 @@ export default function App() {
         <OpeningCutscene
           step={hud.opening.step}
           total={hud.opening.total}
+          canSkip={hud.opening.canSkip}
           portraits={portraits}
           onSkip={() => game.current?.finishOpening()}
         />

@@ -42,6 +42,7 @@ export function encodeHot(sim: Sim): Hot {
     kingCast: wire(sim.kingCast) as number,
     turretYaw: wire(sim.turretYaw) as number,
     hitstop: wire(sim.hitstop) as number,
+    op: sim.opening ? [sim.opening.step, wire(sim.opening.t) as number] : null,
   };
 }
 

@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -118,6 +118,8 @@ export interface Hot {
   kingCast: number;
   turretYaw: number;
   hitstop: number;
+  /** The opening story: [beat, seconds left in it], or null. */
+  op?: [number, number] | null;
 }
 
 export type ServerMsg =
@@ -151,6 +153,8 @@ export type ClientMsg =
   /** Host: end the run and take the whole room back to its lobby (nobody is disconnected). */
   | { t: 'lobby' }
   | { t: 'farm' }
+  /** Host: next beat of the opening story, or skip the rest of it. */
+  | { t: 'opening'; skip: boolean }
   | { t: 'closeShop' }
   | { t: 'buy'; id: UpgradeId }
   | { t: 'bots'; n: number }

@@ -71,6 +71,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   S.beginCourse();
   const W = earwhen(sim);
   if (!W) fail('no Earwhen in the final course');
+  const allenHp1 = sim.A.maxHp;
   // compared with the Grand Feast's health for this herd size
   if (sim.A.maxHp >= COURSES[COURSES.length - 1].hp * (1 + 0.6 * (pigs - 1))) fail('Allen should come back weakened');
   ok(`final course: Earwhen ${W!.maxHp} HP, Allen ${sim.A.maxHp} HP`);
@@ -108,13 +109,15 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   if (sim.course !== FINALE + 1) fail(`expected Earwhen stage 2 next, got course ${sim.course}`);
   ok(`both down: stage 1 cleared, on to Earwhen 2/${EARWHEN_STAGES.length}`);
 
-  /* 3b. a middle stage: Earwhen alone, stronger, with the Cream Quake and kitchen waves */
+  /* 3b. a middle stage: Earwhen and a stronger Allen, with the Cream Quake and kitchen bots */
   const firstHp = W!.maxHp;
+  const firstAllen = allenHp1;
   sim.course = FINALE + 4;
   S.beginCourse();
   const W5 = earwhen(sim);
   if (!W5) fail('no Earwhen in stage 5');
-  if (sim.A.active) fail('Allen should sit out the middle stages');
+  if (!sim.A.active) fail('Allen should fight beside Earwhen in every stage');
+  if (sim.A.maxHp <= firstAllen) fail(`Allen should be stronger in stage 5 (${sim.A.maxHp} vs ${firstAllen})`);
   if (W5!.maxHp <= firstHp) fail('Earwhen should get tougher stage by stage');
   const acts5 = new Set<string>();
   let kitchen = 0;
@@ -125,10 +128,11 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
     return acts5.has('leap') && kitchen > 0;
   }, true);
   if (!acts5.has('leap')) fail(`never saw the Cream Quake in stage 5 (saw ${[...acts5].join(', ')})`);
-  if (!kitchen) fail('Earwhen should call in kitchen bots when he fights alone');
+  if (!kitchen) fail('kitchen bots should join the fight');
   S.damageBot(earwhen(sim), 1e6, 0, 0, true);
-  if (!run(sim, 6, () => sim.mode === 'intermission', true) || sim.course !== FINALE + 5) fail(`clearing stage 5 should lead to stage 6, got course ${sim.course} mode ${sim.mode}`);
-  ok(`stage 5: Earwhen alone (${W5!.maxHp} HP vs ${firstHp}), Cream Quake and kitchen waves; cleared to stage 6`);
+  S.defeatAllen();
+  if (!run(sim, 8, () => sim.mode === 'intermission', true) || sim.course !== FINALE + 5) fail(`clearing stage 5 should lead to stage 6, got course ${sim.course} mode ${sim.mode}`);
+  ok(`stage 5: Earwhen (${W5!.maxHp} HP vs ${firstHp}) with Allen (${sim.A.maxHp} HP vs ${firstAllen}), Cream Quake and kitchen bots; both down clears to stage 6`);
 
   /* 3c. the last stage: both of them, and beating both wins the game */
   sim.course = LAST_COURSE;

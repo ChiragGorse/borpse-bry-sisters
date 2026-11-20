@@ -204,7 +204,9 @@ export class Room {
         }
         if (isHost && !this.playing) {
           this.playing = true;
-          this.sim.start({ opening: false });
+          // everyone watches the opening story together (the host can move it on or skip it);
+          // a person playing Allen goes straight in
+          this.sim.start({ opening: !this.sim.allenPlayer });
           this.log(`started with ${this.sim.players.length} pigs`);
           this.broadcastLobby();
         }
@@ -221,6 +223,12 @@ export class Room {
           this.log('back to the lobby');
           this.broadcastLobby();
           this.broadcastState([]);
+        }
+        break;
+      case 'opening':
+        if (isHost && this.playing && this.sim.opening) {
+          if (msg.skip) this.sim.finishOpening();
+          else this.sim.advanceOpening();
         }
         break;
       case 'retry':

@@ -395,6 +395,9 @@ export class NetSim implements GameSim {
     this.kingCast = h.kingCast;
     this.turretYaw = h.turretYaw;
     this.hitstop = h.hitstop;
+    const op = h.op ? { step: h.op[0], t: h.op[1] } : null;
+    if (!!op !== !!this.opening || (op && this.opening && op.step !== this.opening.step)) this.dirty = true;
+    this.opening = op;
   }
 
   drainEvents(): SimEvent[] {
@@ -450,8 +453,12 @@ export class NetSim implements GameSim {
   start() {
     this.send({ t: 'start' });
   }
-  finishOpening() {}
-  advanceOpening() {}
+  finishOpening() {
+    if (this.opening) this.send({ t: 'opening', skip: true });
+  }
+  advanceOpening() {
+    if (this.opening) this.send({ t: 'opening', skip: false });
+  }
   retryCourse() {
     this.send({ t: this.overReason ? 'retry' : 'restart' });
   }

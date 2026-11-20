@@ -555,7 +555,8 @@ export interface HudState {
   };
   prompt: string | null;
   subtitle: { who: string; text: string } | null;
-  opening: { step: number; total: number } | null;
+  /** `canSkip`: false online for everyone but the host. */
+  opening: { step: number; total: number; canSkip: boolean } | null;
   banner: { title: string; sub: string; key: number } | null;
   objective: string;
   shopNpc: NpcId | null;

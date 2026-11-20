@@ -638,6 +638,7 @@ export class Game {
       // the host started (or we joined a game in progress)
       this.sfx.unlock();
       this.screen = 'play';
+      this.cut = { step: -1, fired: new Set(), eaten: 0 };
       this.aModel.root.visible = false;
       this.controllerDisconnected = false;
       this.lock();
@@ -1194,7 +1195,7 @@ export class Game {
     if (save) this.role = 'pig';
     this.localSim.setAllenPlayer(this.role === 'allen');
     if (save) this.localSim.resume(save);
-    else this.sim.start({ opening: this.role === 'pig' && this.localSim.players.length <= 1 });
+    else this.sim.start({ opening: this.role === 'pig' });
     this.restoreCinematicActors();
     this.controllerDisconnected = false;
     this.screen = 'play';
@@ -1707,6 +1708,13 @@ export class Game {
       sim.step(dt);
       this.processEvents();
       if (sim.opening) {
+        this.wasOpening = true;
+        // the rest of the herd waits off stage: the story has its own cast
+        for (const [id, v] of this.players) {
+          if (id === this.localId) continue;
+          v.m.root.visible = false;
+          v.tag.style.display = 'none';
+        }
         this.updateOpeningCutscene(dt);
         this.world.update(this.time, dt, []);
         this.parts.update(dt, this.camera);
@@ -1718,6 +1726,10 @@ export class Game {
       // story's over: put every actor back where gameplay expects them
       this.wasOpening = false;
       for (const pig of this.openingPigs) pig.root.visible = false;
+      for (const v of this.players.values()) {
+        v.m.root.visible = true;
+        v.tag.style.display = '';
+      }
       this.restoreCinematicActors();
       this.emit();
     }
@@ -4141,7 +4153,7 @@ export class Game {
       cinematic: A.active && A.state === 'calling',
       prompt: this.asAllen ? sim.allenPrompt : k.prompt,
       subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : this.localSubtitle ? { who: this.localSubtitle.who, text: this.localSubtitle.text } : null,
-      opening: sim.opening ? { step: sim.opening.step, total: OPENING_BEATS } : null,
+      opening: sim.opening ? { step: sim.opening.step, total: OPENING_BEATS, canSkip: !this.online || !!this.net?.status?.host } : null,
       banner: sim.banner ? { title: sim.banner.title, sub: sim.banner.sub, key: sim.banner.key } : null,
       objective,
       shopNpc: k.shopNpc,

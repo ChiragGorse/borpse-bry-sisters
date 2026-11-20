@@ -455,7 +455,10 @@ export function OpeningCutscene({
   total,
   portraits,
   onSkip,
+  canSkip = true,
 }: {
+  /** Online, only the host moves the story on. */
+  canSkip?: boolean;
   step: number;
   total: number;
   portraits: Record<string, string>;
@@ -550,9 +553,13 @@ export function OpeningCutscene({
         {/* how long until the next beat */}
         <span className="cutscene-progress" aria-hidden="true" />
       </div>
-      <button type="button" onClick={onSkip} className="pointer-events-auto cutscene-skip btn absolute right-4 top-12 z-10 bg-paper px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide">
-        Skip
-      </button>
+      {canSkip ? (
+        <button type="button" onClick={onSkip} className="pointer-events-auto cutscene-skip btn absolute right-4 top-12 z-10 bg-paper px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide">
+          Skip
+        </button>
+      ) : (
+        <p className="cutscene-skip absolute right-4 top-12 z-10 rounded-lg bg-ink/70 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-paper">The host can skip</p>
+      )}
       <div className="cutscene-bar cutscene-bar-bottom" />
     </div>
   );

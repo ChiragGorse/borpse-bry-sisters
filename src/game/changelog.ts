@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.19',
+    date: '2026-11-20',
+    title: 'Together Again',
+    changes: [
+      'The opening story now plays in multiplayer too, for the whole room at once (and with bot pigs offline). Online, the host moves it on or skips it; everyone else watches.',
+      'Allen now fights beside Earwhen in every one of his 9 stages, not just the first and last. He comes back with his Grand Feast moves and gets stronger each stage: more health, harder hits and faster wind-ups. From stage 5 he has a sauce shield, and from stage 6 he arrives already hangry.',
+      'Clearing an Earwhen stage means taking down both of them.',
+    ],
+  },
+  {
     version: 'Beta 0.18',
     date: '2026-11-20',
     title: 'Farm, Grind, Combo',

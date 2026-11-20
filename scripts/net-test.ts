@@ -168,6 +168,27 @@ async function main() {
   await until('the game to start', () => [a, b, c].every((x) => x.lobby?.playing));
   ok('host started the game; non-host start was ignored');
 
+  // everyone watches the opening story together; only the host moves it on or skips it
+  const tick = async (cond: () => boolean, what: string) => {
+    const t0 = Date.now();
+    while (!cond()) {
+      if (Date.now() - t0 > 8000) fail(`timed out waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 16));
+      for (const cl of [a, b, c]) cl.frame(0.016);
+    }
+  };
+  await tick(() => [a, b, c].every((x) => x.sim?.opening), 'the opening story to play for everyone');
+  const beat = a.sim!.opening!.step;
+  b.send({ t: 'opening', skip: true });
+  await new Promise((r) => setTimeout(r, 300));
+  for (const cl of [a, b, c]) cl.frame(0.016);
+  if (!a.sim!.opening) fail('only the host may skip the opening');
+  a.send({ t: 'opening', skip: false });
+  await tick(() => (a.sim!.opening?.step ?? -1) > beat, 'the host to move the story on');
+  a.send({ t: 'opening', skip: true });
+  await tick(() => [a, b, c].every((x) => !x.sim?.opening), 'the host to skip the rest');
+  ok('the opening story plays for the whole room; only the host can move it on or skip it');
+
   const ws = new WebSocket(`${URL_BASE}?room=TEST&name=Old&v=0`);
   let rejected = '';
   ws.onmessage = (e) => (rejected = (JSON.parse(String(e.data)) as ServerMsg & { msg?: string }).msg ?? '');

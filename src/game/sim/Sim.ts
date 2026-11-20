@@ -1201,18 +1201,20 @@ export class Sim {
     if (finale) {
       const st = earwhenStage(this.course);
       const last = this.course >= LAST_COURSE;
-      if (st === 0 || last) {
-        // Allen fights beside him: battered in the first stage, back for revenge in the last
-        A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * (last ? 0.7 : EARWHEN.allenHp));
-        // a big herd also has to break a sauce shield first
-        A.phases = this.players.length > 1 ? (last ? 3 : 2) : last ? 2 : 1;
-        this.say('Allen', last ? "One last course. Earwhen, together. NOW!" : 'EARWHEN! Cream them!', 4.4);
-      } else {
-        // the stages in between are Earwhen's alone
-        A.active = false;
-        A.state = 'gone';
-        this.say('Earwhen', this.pick(['Round two. I brought more cream.', 'You thought that was all of it?', 'Allen is resting. I am not.', 'Extra whipped. Extra mean.']), 4);
-      }
+      // Allen fights beside him every stage, at his Grand Feast best and stronger each time:
+      // battered in the first, back at full strength in the last
+      A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * this.finaleAllenHp(st, last));
+      // a sauce shield to break first: from stage 5 for anyone, from the start for a big herd
+      A.phases = (this.players.length > 1 ? 2 : 1) + (st >= 4 ? 1 : 0);
+      // from stage 6 he arrives already hangry
+      if (st >= 5) A.enraged = true;
+      if (st === 0 || last) this.say('Allen', last ? 'One last course. Earwhen, together. NOW!' : 'EARWHEN! Cream them!', 4.4);
+      else
+        this.say(
+          this.rnd() < 0.5 ? 'Allen' : 'Earwhen',
+          this.pick(['Round two. We brought more cream.', 'You thought that was all of it?', 'I trained. He whipped. Together we FEAST.', 'Extra whipped. Extra hungry. Extra mean.']),
+          4,
+        );
       this.spawnEarwhen(5, 78, 4.5, 58);
       this.showBanner(`EARWHEN ${st + 1}/${EARWHEN_STAGES.length} · ${EARWHEN_STAGES[st].toUpperCase()}`, st === 0 ? 'Allen brought backup' : last ? 'Earwhen and Allen, together, at full strength' : 'Earwhen is back for more');
       this.earwhenWaveT = 8;
@@ -1221,6 +1223,18 @@ export class Sim {
       this.say('Allen', c.intro, 4.4);
     }
     this.events.push({ t: 'lookAt', x: A.x, z: 60 });
+  }
+
+  /** Allen's health in an Earwhen stage, as a share of his Grand Feast health. */
+  private finaleAllenHp(st: number, last: boolean) {
+    if (last) return 1;
+    return st === 0 ? EARWHEN.allenHp : 0.6 + 0.05 * st;
+  }
+
+  /** Allen's damage and speed-up in an Earwhen stage: he comes back better every time. */
+  private finaleAllenBoost() {
+    if (this.course < FINALE) return 1;
+    return 1 + 0.06 * earwhenStage(this.course);
   }
 
   /** Allen's and Earwhen's damage multiplier for the size of the herd: grows straight with the player count. */
@@ -3767,7 +3781,9 @@ export class Sim {
     const k = ctl ? this.allenAim(ctl) : (lure ? { x: lure.x, z: lure.z, vx: 0, vz: 0 } : this.allenTarget());
     if (!k) return;
     const cBase = COURSES[Math.min(this.course, COURSES.length - 1)];
-    const c0 = { ...cBase, dmg: cBase.dmg * ALLEN_DMG * this.dmgScale() };
+    // in Earwhen's stages he hits harder and winds up faster every stage
+    const boost = this.finaleAllenBoost();
+    const c0 = { ...cBase, dmg: cBase.dmg * ALLEN_DMG * this.dmgScale() * boost, tele: cBase.tele / Math.sqrt(boost) };
     // Tilted (after Smash Battles): faster, harder-hitting, quicker wind-ups
     const c = A.tilt > 0 ? { ...c0, dmg: c0.dmg * 1.3, speed: c0.speed * 1.25, tele: c0.tele * 0.85 } : c0;
     if (A.tilt > 0) {
@@ -4539,7 +4555,7 @@ export class Sim {
   private spawnEarwhen(fx: number, fz: number, tx: number, tz: number) {
     this.bots = this.bots.filter((b) => b.kind !== 'earwhen');
     const st = Math.max(0, earwhenStage(this.course));
-    // tougher every stage; in the last one Allen is back too, so Earwhen's growth is capped there
+    // tougher every stage
     const grow = this.course >= LAST_COURSE ? 1.5 : 1 + 0.12 * st;
     const hp = Math.round(EARWHEN.hp * (1 + EARWHEN_HP_PER_PLAYER * Math.max(0, this.players.length - 1)) * grow);
     this.bots.push({
