@@ -156,6 +156,49 @@ interface HudProps {
   /** Phone/tablet: on-screen controls are showing, so hide keyboard hints and make the prompt tappable. */
   touch?: boolean;
   onInteract?: () => void;
+  /** Online play: the server's location and the measured ping, shown under the farm panel. */
+  conn?: ConnInfo | null;
+}
+
+export interface ConnInfo {
+  ping: number | null;
+  location: string | null;
+  serverHost: string;
+}
+
+/** Green under 80 ms, yellow under 150 ms, red above: roughly where a brawler starts to feel laggy. */
+function pingTone(ping: number | null) {
+  if (ping === null) return { bars: 0, color: 'text-ink/45', label: 'measuring' };
+  if (ping < 80) return { bars: 3, color: 'text-[#2f8f3a]', label: 'good' };
+  if (ping < 150) return { bars: 2, color: 'text-[#b8860b]', label: 'okay' };
+  return { bars: 1, color: 'text-barn', label: 'laggy' };
+}
+
+/** Small pill: signal bars, ping in ms, and where the server is (or its address if it didn't say). */
+export function ConnectionBadge({ conn, className = '' }: { conn: ConnInfo; className?: string }) {
+  const tone = pingTone(conn.ping);
+  const where = conn.location ?? conn.serverHost;
+  return (
+    <div
+      role="status"
+      aria-label={`Server ${where || 'unknown'}, ping ${conn.ping === null ? 'measuring' : `${Math.round(conn.ping)} milliseconds (${tone.label})`}`}
+      title={conn.location ? `Server in ${conn.location} (${conn.serverHost})` : `Server ${conn.serverHost}`}
+      className={`hud-fade flex max-w-full items-center gap-1.5 rounded-full border-2 border-ink/80 bg-paper/85 px-2 py-0.5 text-[10px] font-extrabold leading-none shadow-[2px_2px_0_rgb(42_26_18/0.45)] ${className}`}
+    >
+      <svg viewBox="0 0 12 10" className={`h-2.5 w-3 shrink-0 ${tone.color}`} aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <rect key={i} x={i * 4.2} y={6 - i * 3} width="3" height={4 + i * 3} rx="0.6" fill="currentColor" opacity={i < tone.bars ? 1 : 0.22} />
+        ))}
+      </svg>
+      <span className={`font-mono tabular-nums ${tone.color}`}>{conn.ping === null ? '— ms' : `${Math.round(conn.ping)} ms`}</span>
+      {where && (
+        <>
+          <span className="text-ink/35" aria-hidden="true">·</span>
+          <span className="min-w-0 truncate uppercase tracking-wide text-ink/75">{where}</span>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Your panel when you play Allen: his health and poise, his moves with their cooldowns, and the pigs. */
@@ -208,7 +251,7 @@ function AllenPanel({ hud, portraits, touch }: { hud: HudState; portraits: Recor
   );
 }
 
-export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract }: HudProps) {
+export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract, conn }: HudProps) {
   const boss = hud.boss;
   const shield = boss.shield;
   const pad = hud.gamepad?.active ? hud.gamepad.layout : undefined;
@@ -421,7 +464,8 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
         </div>
 
         {/* Farm */}
-        <section aria-label={inForest ? 'Folk Valley map' : 'Farm status'} className="sticker col-start-2 row-start-1 w-full p-2 sm:col-start-3 sm:w-[196px] sm:p-2.5">
+        <div className="col-start-2 row-start-1 flex w-full flex-col items-end gap-1.5 sm:col-start-3 sm:w-[196px]">
+        <section aria-label={inForest ? 'Folk Valley map' : 'Farm status'} className="sticker w-full p-2 sm:p-2.5">
           {inForest ? (
             <>
               <h2 className="font-display text-[13px] leading-tight text-[#34563b]">FOLK VALLEY</h2>
@@ -484,6 +528,8 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
           </ul>
           )}
         </section>
+        {conn && <ConnectionBadge conn={conn} className="hud-zoom" />}
+        </div>
       </div>
 
       {/* banner */}

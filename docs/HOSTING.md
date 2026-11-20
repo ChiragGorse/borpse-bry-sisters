@@ -85,6 +85,7 @@ over https can't connect to an insecure `ws://` server.
 | `HOST`       | `0.0.0.0` | Interface to listen on. |
 | `STATIC_DIR` | `dist`  | Folder with the built game page. |
 | `MAX_ROOMS`  | `100`   | Rooms allowed at once. |
+| `SERVER_LOCATION` | auto | Where players are told the server is, next to their ping (e.g. `Seattle` or `Chirag's PC`). Without it the server uses its Fly.io / Railway region, else the city of its time zone; a container on UTC reports nothing and players see its address instead. |
 
 `GET /healthz` returns the number of open rooms and connected players.
 

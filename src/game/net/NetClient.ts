@@ -15,7 +15,15 @@ export interface NetStatus {
   allen: number;
   allenName: string;
   error: string | null;
+  /** Smoothed round-trip time to the server in ms, or null until measured (or if the server doesn't answer pings). */
+  ping: number | null;
+  /** Where the server says it runs ("Frankfurt", "Los Angeles"…), or null if it didn't say. */
+  location: string | null;
+  /** The server's host name, e.g. "borpse.fly.dev" or "localhost:8080": shown when there's no location. */
+  serverHost: string;
 }
+
+const PING_EVERY_MS = 2000;
 
 /** Turns "https://host", "host:8080" or "wss://host/ws" into the server's WebSocket address. */
 function toWs(url: string): string {
@@ -94,16 +102,30 @@ export class NetClient {
   private maps: SimMaps;
   private onStatus: (s: NetStatus) => void;
   private onSim: (sim: NetSim) => void;
+  private pinger: ReturnType<typeof setInterval> | null = null;
 
   constructor(url: string, room: string, name: string, maps: SimMaps, onStatus: (s: NetStatus) => void, onSim: (sim: NetSim) => void) {
     this.maps = maps;
     this.onStatus = onStatus;
     this.onSim = onSim;
-    this.status = { state: 'connecting', room, pid: 0, host: false, players: [], bots: 0, allen: 0, allenName: '', error: null };
+    let serverHost = '';
+    try {
+      serverHost = new URL(url).host;
+    } catch {
+      /* keep it blank */
+    }
+    this.status = { state: 'connecting', room, pid: 0, host: false, players: [], bots: 0, allen: 0, allenName: '', error: null, ping: null, location: null, serverHost };
     const qs = new URLSearchParams({ room, name, v: String(PROTOCOL_VERSION) });
     this.ws = new WebSocket(`${url}?${qs}`);
     this.ws.onmessage = (e) => this.onMessage(e.data);
-    this.ws.onclose = () => this.update({ state: 'closed', error: this.status.error ?? (this.status.state === 'connecting' ? "Couldn't reach the game server. Check the address, that the server is running, and that its firewall lets players in." : 'Disconnected from the game server.') });
+    this.ws.onopen = () => {
+      this.sendPing();
+      this.pinger = setInterval(() => this.sendPing(), PING_EVERY_MS);
+    };
+    this.ws.onclose = () => {
+      this.stopPinging();
+      this.update({ state: 'closed', error: this.status.error ?? (this.status.state === 'connecting' ? "Couldn't reach the game server. Check the address, that the server is running, and that its firewall lets players in." : 'Disconnected from the game server.') });
+    };
     this.ws.onerror = () => undefined;
     this.onStatus(this.status);
   }
@@ -113,8 +135,18 @@ export class NetClient {
   }
 
   close() {
+    this.stopPinging();
     this.ws.onclose = null;
     this.ws.close();
+  }
+
+  private sendPing() {
+    this.send({ t: 'ping', c: performance.now() });
+  }
+
+  private stopPinging() {
+    if (this.pinger !== null) clearInterval(this.pinger);
+    this.pinger = null;
   }
 
   private update(patch: Partial<NetStatus>) {
@@ -133,7 +165,7 @@ export class NetClient {
     switch (msg.t) {
       case 'welcome':
         this.sim = new NetSim(msg.pid, this.maps, (m) => this.send(m));
-        this.update({ pid: msg.pid, room: msg.room, state: 'lobby' });
+        this.update({ pid: msg.pid, room: msg.room, state: 'lobby', location: typeof msg.loc === 'string' && msg.loc ? msg.loc.slice(0, 40) : null });
         this.onSim(this.sim);
         break;
       case 'lobby':
@@ -143,6 +175,15 @@ export class NetClient {
       case 's':
         this.sim?.receive(msg);
         break;
+      case 'pong': {
+        const rtt = performance.now() - Number(msg.c);
+        if (!(rtt >= 0 && rtt < 30000)) break;
+        // smooth it so the number doesn't flicker every reading, but still reacts within a few seconds
+        const prev = this.status.ping;
+        const ping = prev === null ? rtt : prev * 0.6 + rtt * 0.4;
+        if (prev === null || Math.round(prev) !== Math.round(ping)) this.update({ ping });
+        break;
+      }
       case 'error':
         this.update({ error: msg.msg });
         break;
