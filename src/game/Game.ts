@@ -4196,6 +4196,7 @@ export class Game {
     const S = cv.width;
     if (sim.area === 'forest') {
       this.drawForestMinimap(ctx, S);
+      this.drawCompass(ctx, S);
       return;
     }
     const sc = S / 120;
@@ -4289,6 +4290,57 @@ export class Game {
     }
     const k = this.me;
     if (!this.asAllen) this.mapArrow(ctx, X(k.x), Z(k.z), k.heading, u, '#ff8fb0', true);
+    this.drawCompass(ctx, S);
+  }
+
+  /**
+   * Compass rose in the minimap's top-left corner. The map is always north-up (−z is north), the same
+   * axes Herb uses when he says "to the northeast", so the letters tell you which way to head.
+   */
+  private drawCompass(ctx: CanvasRenderingContext2D, S: number) {
+    const r = S * 0.085;
+    const cx = r + S * 0.035;
+    const cy = r + S * 0.035;
+    ctx.save();
+    ctx.translate(cx, cy);
+    // backing disc so it reads over grass, paths and trees alike
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.18, 0, TAU);
+    ctx.fillStyle = 'rgba(251,243,223,0.88)';
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, S / 150);
+    ctx.strokeStyle = '#2a1a12';
+    ctx.stroke();
+    // four diamond points: north red, the rest ink
+    const point = (ang: number, len: number, fill: string) => {
+      const w = r * 0.24;
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(0, -len);
+      ctx.lineTo(w, 0);
+      ctx.lineTo(0, w * 0.6);
+      ctx.lineTo(-w, 0);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.restore();
+    };
+    point(PI / 2, r * 0.42, '#2a1a12');
+    point(PI, r * 0.42, '#2a1a12');
+    point(-PI / 2, r * 0.42, '#2a1a12');
+    point(0, r * 0.62, '#d9251d');
+    ctx.font = `bold ${Math.round(r * 0.52)}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const at = r * 0.84;
+    ctx.fillStyle = '#d9251d';
+    ctx.fillText('N', 0, -at);
+    ctx.fillStyle = '#2a1a12';
+    ctx.fillText('S', 0, at);
+    ctx.fillText('E', at, 0);
+    ctx.fillText('W', -at, 0);
+    ctx.restore();
   }
 
   private drawForestMinimap(ctx: CanvasRenderingContext2D, size: number) {
@@ -4366,7 +4418,6 @@ export class Game {
     ctx.textAlign = 'center';
     ctx.fillText('OLD CAMP', X(-41), Z(1));
     ctx.fillText('DEEPWOOD', X(4), Z(-64));
-    ctx.fillText('N', X(0), Z(-76));
 
     for (const p of sim.players) {
       if (p.id === this.localId) continue;
