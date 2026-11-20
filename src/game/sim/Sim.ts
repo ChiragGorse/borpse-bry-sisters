@@ -367,7 +367,8 @@ export class Sim {
   private history = new Map<number, { t: number; x: number; z: number; hp: number }[]>();
   private historyT = 0;
   /** Pigs driven by their owner's browser (online play), with moves waiting to be replayed. */
-  private remote = new Map<number, { strikes: Strike[]; pose: Pose | null; guard: number }>();
+  /** Browser-driven pigs: their latest pose and moves, and the epoch those were sent for. */
+  private remote = new Map<number, { strikes: Strike[]; pose: Pose | null; guard: number; ep: number }>();
   /** Set while replaying a browser's move: no re-aiming, no hit-stop, no events (the owner already showed them). */
   private replaying = false;
   /** Client-side prediction: receives the moves the predicted pig makes. */
@@ -2162,7 +2163,7 @@ export class Sim {
 
   /** Marks a pig as driven by its owner's browser: the simulation stops moving it and replays its moves instead. */
   setClientDriven(pid: number, on = true) {
-    if (on) this.remote.set(pid, { strikes: [], pose: null, guard: 0 });
+    if (on) this.remote.set(pid, { strikes: [], pose: null, guard: 0, ep: 0 });
     else this.remote.delete(pid);
   }
 
@@ -2171,6 +2172,8 @@ export class Sim {
     const r = this.remote.get(pid);
     const p = this.player(pid);
     if (!r || !p || epoch < p.epoch) return;
+    if (epoch > r.ep) r.strikes = [];
+    r.ep = epoch;
     r.pose = pose;
     r.strikes.push(...strikes.slice(0, 32));
     if (r.strikes.length > 64) r.strikes.splice(0, r.strikes.length - 64);
@@ -2179,6 +2182,12 @@ export class Sim {
   private applyRemote(p: Player, dt: number) {
     const r = this.remote.get(p.id)!;
     r.guard = Math.max(0, r.guard - dt);
+    // a pose or move sent before the server last moved this pig by force (a retry, a respawn, travel)
+    // must not undo it: e.g. a "knocked out" pose arriving just before a retry would knock it out again
+    if (r.ep < p.epoch) {
+      r.pose = null;
+      r.strikes = [];
+    }
     for (const s of r.strikes) this.replay(p, s);
     r.strikes = [];
     if (r.pose) {

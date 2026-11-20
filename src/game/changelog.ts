@@ -11,6 +11,12 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.14.1',
+    date: '2026-11-20',
+    title: 'Back on Your Hooves',
+    changes: ['Fixed online play: after Retry, everyone could stay knocked out while Allen came back for the course. Pigs now get back up properly (and travelling to Folk Valley can no longer drag you back to where you were).'],
+  },
+  {
     version: 'Beta 0.14',
     date: '2026-11-20',
     title: 'The Feast Fights Back',

@@ -14,7 +14,8 @@
     "net:test": "node scripts/run-ts.mjs scripts/net-test.ts",
     "allen:test": "node scripts/run-ts.mjs scripts/allen-test.ts",
     "finale:test": "node scripts/run-ts.mjs scripts/finale-test.ts",
-    "hunt:test": "node scripts/run-ts.mjs scripts/hunt-test.ts"
+    "hunt:test": "node scripts/run-ts.mjs scripts/hunt-test.ts",
+    "respawn:test": "node scripts/run-ts.mjs scripts/respawn-test.ts"
   },
   "dependencies": {
     "clsx": "2.1.1",
