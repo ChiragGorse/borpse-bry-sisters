@@ -90,6 +90,8 @@ const KITCHEN_WAVE_GAP = 1.3;
 const STUN_IMMUNITY = 10;
 /** Heavy (forced) stuns in that window last only this share of their usual time. */
 const STUN_RECOVERING = 0.35;
+/** Blast radius of one of Earwhen's flaming robots. */
+const ROBOT_BLAST = 2.9;
 export const MAX_PLAYERS = 8;
 export const HOG_TINTS = [0xf2b38a, 0xe8a0b4, 0xffc9a8, 0xd9a0a0, 0xf7d0b0, 0xe9b9d9];
 /** Skin colours for players 1..8 (player 1 is the classic pink Kenji). */
@@ -990,7 +992,7 @@ export class Sim {
     const keep = (b: Bot) => finale && b.kind === 'earwhen';
     for (const b of this.bots) if (!keep(b)) this.fx.emit(b.x, 1, b.z, 12, 0xff7a1a, 8, 0.3, 0.6);
     this.bots = this.bots.filter(keep);
-    this.projs = finale ? this.projs.filter((p) => p.kind === 'cream' || p.kind === 'blob') : [];
+    this.projs = finale ? this.projs.filter((p) => p.kind === 'cream' || p.kind === 'blob' || p.kind === 'robot') : [];
     this.puddles = finale ? this.puddles.filter((p) => p.cream) : [];
     const last = this.course >= COURSES.length - 1;
     const W = this.earwhen();
@@ -2957,7 +2959,7 @@ export class Sim {
     if (A.state === 'eating' || A.state === 'toEat') {
       A.eatDmg += d;
       if (A.eatDmg >= 30 + 9 * this.course) {
-        A.hunger = COURSES[this.course].hunger;
+        A.hunger = COURSES[Math.min(this.course, COURSES.length - 1)].hunger;
         A.target = -1;
         this.say('Allen', this.pick(['Hey! I was EATING that!', 'Do you MIND?', 'Rude. So rude.']), 2.6);
         this.floatText(A.x, 5.4, A.z, 'INTERRUPTED!', 'info');
@@ -4142,7 +4144,7 @@ export class Sim {
       x: fx, z: fz, hp, maxHp: hp, rad: 1.5, heading: Math.atan2(tx - fx, tz - fz),
       bite: 1.5, stun: 0, kx: 0, kz: 0, chomp: 0, flash: 0, ph: 0,
       mode: 'idle', mt: 0, lx: fx, lz: fz, strafe: this.rnd() < 0.5 ? -1 : 1, hop: 0, moving: false, swing: 0,
-      aim: Math.atan2(tx - fx, tz - fz), cdSpray: 1.5, cdStream: 3, cdBlob: 5, hunger: EARWHEN.hunger, target: -1, shots: 0, poise: 0,
+      aim: Math.atan2(tx - fx, tz - fz), cdSpray: 1.5, cdStream: 3, cdBlob: 5, cdRobots: 7, hunger: EARWHEN.hunger, target: -1, shots: 0, poise: 0,
       tx, tz, rage: false,
     });
     this.sound('jump');
@@ -4232,6 +4234,21 @@ export class Sim {
     this.dirty = true;
   }
 
+  /** A flaming robot comes down and blows up, leaving a patch of fire. */
+  private robotBlast(x: number, z: number, dmg: number) {
+    this.sound('slam');
+    this.sound('pop');
+    this.addShake(0.45);
+    this.fx.hitBurst(x, 0.9, z, 0xff4a1a, 1.7);
+    this.fx.shockWall(x, 0.08, z, 0xff6a1f, 0.7, ROBOT_BLAST * 1.1, 0.9, 2.8, 0.42, 9);
+    this.fx.chunks(x, 0.8, z, 10, 0x6c7480, 9, 0.24, 0.7);
+    this.fx.sparks(x, 0.8, z, 24, 0xff7a1a, 10, 0.18, 0.6, { up: 1, grav: 12, hdr: 4, altColor: 0xffd23f });
+    this.fx.groundMark(x, 0, z, ROBOT_BLAST * 0.85, 'crater', 0xff7a2e, 2.4);
+    this.hurtPlayersNear(x, z, ROBOT_BLAST, 2.4, dmg, x, z, 13);
+    this.hitAlliesNear(x, z, ROBOT_BLAST, dmg * 0.9);
+    this.spawnPuddle(x, z, dmg * 0.3);
+  }
+
   /** A Mega Dollop lands: a big white splash, and a cream puddle left behind. */
   private creamSplash(x: number, z: number, dmg: number) {
     const R = 3.6;
@@ -4283,6 +4300,7 @@ export class Sim {
     b.cdSpray -= dt;
     b.cdStream -= dt;
     b.cdBlob -= dt;
+    b.cdRobots -= dt;
     b.hunger -= dt;
     const anyAlive = this.living().length > 0;
     if (!anyAlive || this.overReason || this.mode !== 'combat') return;
@@ -4343,10 +4361,11 @@ export class Sim {
         }
         if (b.bite > 0) break;
         // whichever attack in range has been waiting longest (point-blank, he favours the spray)
-        const opts: ['spray' | 'stream' | 'blob', number][] = [];
+        const opts: ['spray' | 'stream' | 'blob' | 'robots', number][] = [];
         if (d < 10 && b.cdSpray <= 0) opts.push(['spray', b.cdSpray - (d < 6 ? 2 : 0)]);
         if (d < 22 && b.cdStream <= 0) opts.push(['stream', b.cdStream]);
         if (d < 26 && b.cdBlob <= 0) opts.push(['blob', b.cdBlob]);
+        if (d < 28 && b.cdRobots <= 0) opts.push(['robots', b.cdRobots]);
         if (!opts.length) break;
         opts.sort((x, y) => x[1] - y[1]);
         const pick = opts[0][0];
@@ -4360,10 +4379,16 @@ export class Sim {
           b.act = 'streamWind';
           this.sound('clang');
           this.floatText(b.x, 5, b.z, 'CREAM STREAM!', 'hurt');
-        } else {
+        } else if (pick === 'blob') {
           b.act = 'blobWind';
           this.sound('hiss');
           this.floatText(b.x, 5, b.z, 'MEGA DOLLOP!', 'hurt');
+        } else {
+          b.act = 'robotWind';
+          this.sound('clang');
+          this.sound('sizzle');
+          this.floatText(b.x, 5, b.z, 'FLAMING ROBOTS!', 'hurt');
+          this.say('Earwhen', this.pick(['Warm up the bots, boys.', 'Kingger is not the only one with robots.', 'These ones are on FIRE. Literally.']), 2.4);
         }
         break;
       }
@@ -4478,6 +4503,53 @@ export class Sim {
           this.sound('throw');
           b.act = 'blob';
           b.mt = 0;
+        }
+        break;
+      }
+      case 'robotWind': {
+        // loading the cannon with burning robots: flames lick out of the nozzle
+        b.heading = angLerp(b.heading, toT, 5 * dt);
+        b.aim = angLerp(b.aim, toT, 5 * dt);
+        const n = nozzle();
+        if (this.rnd() < dt * 40) this.fx.sparks(n.x, 2.2, n.z, 2, 0xff7a1a, 4, 0.16, 0.35, { up: 1, grav: -3, hdr: 3.6, altColor: 0xffd23f });
+        if (b.mt >= 0.9 * rage + 0.15) {
+          b.act = 'robots';
+          b.mt = 0;
+          b.shots = 0;
+        }
+        break;
+      }
+      case 'robots': {
+        // a volley of burning robots, lobbed around where you're standing (and where you're running)
+        const count = b.rage ? 4 : 3;
+        const due = Math.floor(b.mt / 0.22);
+        if (due >= b.shots && b.shots < count) {
+          const pk = tgt.player;
+          const lead = b.shots % 2 === 0 ? 0.7 : 0;
+          const ox = b.shots === 0 ? 0 : this.rand(-4.5, 4.5);
+          const oz = b.shots === 0 ? 0 : this.rand(-4.5, 4.5);
+          const tx = clamp((pk ? pk.x + pk.vx * lead : tgt.x) + ox, -BOUND + 2, BOUND - 2);
+          const tz = clamp((pk ? pk.z + pk.vz * lead : tgt.z) + oz, -BOUND + 2, BOUND - 2);
+          b.shots++;
+          const nz = nozzle();
+          b.aim = angLerp(b.aim, Math.atan2(tx - b.x, tz - b.z), 0.6);
+          const flight = clamp(Math.hypot(tx - nz.x, tz - nz.z) / 15, 0.75, 1.35);
+          const y0 = 2.4;
+          this.projs.push({
+            id: this.id(), x: nz.x, y: y0, z: nz.z,
+            vx: (tx - nz.x) / flight, vy: (0.3 - y0 + 0.5 * 22 * flight * flight) / flight, vz: (tz - nz.z) / flight,
+            life: flight + 0.4, dmg: 13 * dm, kind: 'robot',
+          });
+          // an orange ring where each one comes down
+          this.fx.groundMark(tx, 0, tz, ROBOT_BLAST, 'crater', 0xff6a1a, flight + 0.2);
+          this.sound('throw');
+          this.fx.sparks(nz.x, 2.4, nz.z, 8, 0xff7a1a, 7, 0.16, 0.4, { dirX: Math.sin(b.aim), dirZ: Math.cos(b.aim), focus: 0.6, hdr: 3.6 });
+        }
+        if (b.shots >= count && b.mt >= count * 0.22 + 0.6) {
+          b.act = 'stalk';
+          b.mt = 0;
+          b.cdRobots = 9 * rage;
+          b.bite = 1.0 * rage;
         }
         break;
       }
@@ -4887,7 +4959,7 @@ export class Sim {
     this.projs = this.projs.filter((p) => {
       p.x += p.vx * dt;
       p.z += p.vz * dt;
-      if ((p.kind === 'chili' || p.kind === 'blob') && !p.friendly) {
+      if ((p.kind === 'chili' || p.kind === 'blob' || p.kind === 'robot') && !p.friendly) {
         p.vy -= 22 * dt;
         p.y += p.vy * dt;
       }
@@ -4895,11 +4967,15 @@ export class Sim {
 
       if (this.rnd() < dt * (p.friendly ? 45 : 24)) {
         const cream = p.kind === 'cream' || p.kind === 'blob';
-        const col = p.friendly ? 0x62f4ff : cream ? 0xfffaf0 : p.kind === 'chili' ? 0xff3b18 : 0xffaa44;
+        const col = p.friendly ? 0x62f4ff : cream ? 0xfffaf0 : p.kind === 'chili' || p.kind === 'robot' ? 0xff3b18 : 0xffaa44;
         this.fx.sparks(p.x, p.y, p.z, p.kind === 'blob' ? 3 : 1, col, 3, p.kind === 'blob' ? 0.2 : 0.11, 0.25, { grav: 4, hdr: p.friendly ? 4.0 : cream ? 1.2 : 3.2 });
       }
       let dead = p.life <= 0 || Math.abs(p.x) > 60 || Math.abs(p.z) > 60;
       // Arcing Sriracha chili glob splashes onto the ground into a burning chili puddle!
+      if (!dead && p.kind === 'robot' && !p.friendly && p.y <= 0.3) {
+        this.robotBlast(clamp(p.x, -BOUND + 1, BOUND - 1), clamp(p.z, -BOUND + 1, BOUND - 1), p.dmg);
+        dead = true;
+      }
       if (!dead && p.kind === 'blob' && !p.friendly && p.y <= 0.3) {
         this.creamSplash(clamp(p.x, -BOUND + 1, BOUND - 1), clamp(p.z, -BOUND + 1, BOUND - 1), p.dmg);
         dead = true;
@@ -4913,6 +4989,7 @@ export class Sim {
       if (!dead && p.y < 2.2 && this.resolve(p.x, p.z, 0.25).hit) {
         if (p.kind === 'chili' && !p.friendly) this.spawnPuddle(p.x, p.z, p.dmg * 0.7);
         else if (p.kind === 'blob' && !p.friendly) this.creamSplash(p.x, p.z, p.dmg);
+        else if (p.kind === 'robot' && !p.friendly) this.robotBlast(p.x, p.z, p.dmg);
         else this.fx.emit(p.x, p.y, p.z, 5, p.kind === 'cream' ? 0xfffaf0 : 0xffb057, 5, 0.2, 0.4);
         dead = true;
       }
@@ -4938,6 +5015,7 @@ export class Sim {
             if (Math.hypot(p.x - k.x, p.z - k.z) < 1.28 && k.y < 2 && this.hurtPlayer(k, p.dmg, p.x - p.vx * 0.1, p.z - p.vz * 0.1, 10)) {
               if (p.kind === 'chili') this.spawnPuddle(p.x, p.z, p.dmg * 0.65);
               else if (p.kind === 'blob') this.creamSplash(p.x, p.z, p.dmg * 0.6);
+              else if (p.kind === 'robot') this.robotBlast(p.x, p.z, p.dmg);
               else if (p.kind === 'cream') this.fx.emit(p.x, p.y, p.z, 6, 0xfffaf0, 4, 0.2, 0.45, 12);
               dead = true;
               break;

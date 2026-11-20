@@ -82,7 +82,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
     if (w) acts.add(w.act);
     if (!w || sim.outcome) break;
   }
-  for (const a of ['spray', 'stream', 'blob']) if (!acts.has(a)) fail(`never saw Earwhen's ${a} (saw ${[...acts].join(', ')})`);
+  for (const a of ['spray', 'stream', 'blob', 'robots']) if (!acts.has(a)) fail(`never saw Earwhen's ${a} (saw ${[...acts].join(', ')})`);
   if (taken < 30) fail(`the herd barely got hurt (${Math.round(taken)} HP, from ${hp0})`);
   ok(`Earwhen used ${[...acts].join(', ')}; the herd lost ${Math.round(taken)} HP over the fight`);
 

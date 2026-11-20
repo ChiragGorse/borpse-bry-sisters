@@ -1089,6 +1089,40 @@ export function makeEarwhen(): EarwhenModel {
   return { root, anim: pivot, flash: hoodie, hp, pivot, head, jaw, armL, armR, legL, legR, cannon, charge, stars, flashMats };
 }
 
+/** One of Earwhen's flaming robots: a boxy little bot, eyes glowing, engulfed in flames (`flame` flickers). */
+export function makeFlameRobot(): THREE.Group {
+  const g = new THREE.Group();
+  const steel = M(0x6c7480);
+  const dark = M(0x2b2f36);
+  part(g, box(0.62, 0.55, 0.5), steel, 0, 0, 0);
+  part(g, box(0.48, 0.36, 0.42), steel, 0, 0.45, 0.02);
+  for (const s of [-1, 1]) {
+    part(g, sph(0.07, 6, 5), glow(0xff3b1f, 2.4), 0.11 * s, 0.48, 0.24, { shadow: false });
+    part(g, box(0.12, 0.38, 0.12), dark, 0.38 * s, -0.05, 0, { rz: 0.5 * s });
+    part(g, box(0.16, 0.22, 0.2), dark, 0.16 * s, -0.36, 0);
+  }
+  part(g, cyl(0.02, 0.02, 0.28, 5), dark, 0.12, 0.76, 0);
+  part(g, sph(0.05, 6, 5), glow(0xffd23f, 2), 0.12, 0.92, 0, { shadow: false });
+  // the fire around it
+  const flame = new THREE.Group();
+  flame.name = 'flame';
+  const fire = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.75, depthWrite: false });
+  const core = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85, depthWrite: false });
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const c = new THREE.Mesh(cone(0.18, 0.75, 6), i % 2 ? core : fire);
+    c.position.set(Math.cos(a) * 0.28, 0.55, Math.sin(a) * 0.28);
+    c.rotation.set(Math.sin(a) * 0.4, 0, -Math.cos(a) * 0.4);
+    flame.add(c);
+  }
+  const top = new THREE.Mesh(cone(0.3, 1.0, 8), fire);
+  top.position.y = 0.95;
+  flame.add(top);
+  g.add(flame);
+  g.scale.setScalar(1.35);
+  return g;
+}
+
 /** A pellet of Earwhen's Cream Stream, or (`big`) his Mega Dollop. */
 export function makeCreamShot(big: boolean): THREE.Group {
   const g = new THREE.Group();

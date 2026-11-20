@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.12',
+    date: '2026-11-20',
+    title: 'Flaming Robots',
+    changes: [
+      'Earwhen has a new attack: he loads his cannon with burning robots and fires a volley of them (four when he is enraged). Each one lands on an orange ring, explodes, and leaves a patch of fire.',
+      'Fixed a crash in the final course when you interrupted Allen while he was eating.',
+    ],
+  },
+  {
     version: 'Beta 0.11',
     date: '2026-11-19',
     title: 'Allen Takes Charge',

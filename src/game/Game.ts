@@ -29,6 +29,7 @@ import {
   makeTruffle,
   makeChopsticks,
   makeCreamShot,
+  makeFlameRobot,
   makeEarwhen,
   makeTurret,
   makeSaucePot,
@@ -2606,7 +2607,14 @@ export class Game {
       sim.projs,
       this.projViews,
       (p) => {
-        const mesh = p.kind === 'chopstick' ? makeChopsticks() : p.kind === 'cream' || p.kind === 'blob' ? makeCreamShot(p.kind === 'blob') : makeChiliGlob();
+        const mesh =
+          p.kind === 'chopstick'
+            ? makeChopsticks()
+            : p.kind === 'cream' || p.kind === 'blob'
+              ? makeCreamShot(p.kind === 'blob')
+              : p.kind === 'robot'
+                ? makeFlameRobot()
+                : makeChiliGlob();
         mesh.rotation.y = Math.atan2(p.vx, p.vz);
         this.scene.add(mesh);
         return { mesh, friendly: false };
@@ -2615,6 +2623,14 @@ export class Game {
         v.mesh.position.set(p.x, p.y, p.z);
         if (p.kind === 'chopstick') v.mesh.rotation.z += dt * 16;
         else if (p.kind === 'cream') v.mesh.rotation.y = Math.atan2(p.vx, p.vz);
+        else if (p.kind === 'robot') {
+          // tumbling through the air, flames roaring, trailing embers
+          v.mesh.rotation.x += dt * 7;
+          v.mesh.rotation.z += dt * 3;
+          const f = v.mesh.getObjectByName('flame');
+          if (f) f.scale.set(1 + Math.sin(this.time * 31) * 0.15, 1 + Math.sin(this.time * 23 + 1) * 0.25, 1 + Math.sin(this.time * 27 + 2) * 0.15);
+          if (Math.random() < dt * 40) this.parts.motes(p.x, p.y + 0.4, p.z, 1, Math.random() < 0.5 ? 0xff6a1a : 0xffd23f, 1.5, 0.22, 0.5, -3, 0, 0.3, 3.8);
+        }
         else v.mesh.rotation.x += dt * (p.kind === 'blob' ? 4 : 10);
         if (p.friendly && !v.friendly) {
           // a Riptide Parry turned it around: it glows and flies back at Allen
@@ -2978,6 +2994,16 @@ export class Game {
         lean = -0.1 * p;
         break;
       }
+      case 'robotWind':
+        lean = -0.12;
+        recoil = Math.sin(T * 40) * 0.05;
+        jaw = 1.6;
+        break;
+      case 'robots':
+        recoil = -Math.abs(Math.sin(T * 14)) * 0.3;
+        lean = -0.15;
+        jaw = 2;
+        break;
       case 'blob':
         lean = -0.3 * Math.max(0, 1 - b.mt / 0.4);
         recoil = -0.35 * Math.max(0, 1 - b.mt / 0.3);
@@ -3666,6 +3692,8 @@ export class Game {
                       ? 'Cream Stream — keep moving!'
                       : W.act === 'blobWind' || W.act === 'blob'
                         ? 'Mega Dollop — watch the white ring!'
+                        : W.act === 'robotWind' || W.act === 'robots'
+                          ? 'Flaming Robots — get out of the orange rings!'
                         : W.rage
                           ? 'ENRAGED'
                           : 'Cream enthusiast',
