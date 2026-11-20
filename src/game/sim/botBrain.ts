@@ -4,7 +4,7 @@
  */
 import { SPOT } from '../layout';
 import type { GameSim } from './gameSim';
-import { BTN, type Player, type PlayerInput } from './types';
+import { BTN, type EarwhenBot, type Player, type PlayerInput } from './types';
 
 interface Memory {
   strafe: number;
@@ -93,9 +93,27 @@ export class BotBrain {
     }
 
     const A = sim.A;
-    if (sim.mode === 'combat' && A.active) {
-      const dA = Math.hypot(A.x - p.x, A.z - p.z);
-      const danger = ['slamWind', 'slamAir', 'dashWind', 'dash', 'spinWind', 'spin', 'swipeWind'].includes(A.state);
+    // Allen, if he's up and fighting; Earwhen, in his stages
+    const allen = A.active && !['ko', 'defeated', 'leaving', 'gone', 'calling', 'backrooms'].includes(A.state);
+    const W = sim.bots.find((b): b is EarwhenBot => b.kind === 'earwhen' && b.act !== 'arrive');
+    if (sim.mode === 'combat' && (allen || W)) {
+      // get out of Earwhen's way: his spray cone, and the ring he's about to land on
+      if (W) {
+        const dW = Math.hypot(W.x - p.x, W.z - p.z);
+        const facing = Math.cos(Math.atan2(p.x - W.x, p.z - W.z) - W.aim) > 0.75;
+        if ((W.act === 'sprayWind' || W.act === 'spray') && dW < 10.5 && facing) {
+          flee(W.x, W.z);
+          return out;
+        }
+        if ((W.act === 'leapWind' || W.act === 'leap') && Math.hypot(W.tx - p.x, W.tz - p.z) < 5.5) {
+          flee(W.tx, W.tz);
+          if (p.stam > 40 && this.rnd() < dt * 4) out.buttons |= BTN.roll;
+          return out;
+        }
+      }
+      const boss = allen ? A : W!;
+      const dA = Math.hypot(boss.x - p.x, boss.z - p.z);
+      const danger = allen && ['slamWind', 'slamAir', 'dashWind', 'dash', 'spinWind', 'spin', 'swipeWind'].includes(A.state);
       if (danger && dA < (A.state === 'swipeWind' ? 6.5 : 9)) {
         if (A.state === 'slamAir') flee(A.tx, A.tz);
         else flee(A.x, A.z);
@@ -103,10 +121,10 @@ export class BotBrain {
         return out;
       }
       // pick a foe: sauce jars while he's shielded, else the closest bot, else Allen himself
-      let tx = A.x;
-      let tz = A.z;
-      let reach = 3.2;
-      if (A.shielded && sim.pots.length) {
+      let tx = boss.x;
+      let tz = boss.z;
+      let reach = allen ? 3.2 : 2.6;
+      if (allen && A.shielded && sim.pots.length) {
         let bd = Infinity;
         for (const o of sim.pots) {
           const d = Math.hypot(o.x - p.x, o.z - p.z);

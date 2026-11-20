@@ -46,7 +46,7 @@ import {
   type TurretModel,
   type PotModel,
 } from './models';
-import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN, FINALE, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
+import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN_STAGES, FINALE, earwhenStage, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
 import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
@@ -272,6 +272,8 @@ export class Game {
   /** The settings dialog is open over the pause menu (Esc closes it, not the pause). */
   settingsOpen = false;
   private skyArea: Area = 'farm';
+  /** Kingger has left his lab for the backup-call scene. */
+  private kingAway = false;
   private offVolume: (() => void) | null = null;
   /** Hog Hunt lighting: Herb's lantern and a faint glow round your own pig (off on the farm). */
   private herbLight = new THREE.PointLight(0xffb04a, 0, 22, 1.6);
@@ -1603,7 +1605,10 @@ export class Game {
     const sim = this.sim;
     const inGame = this.screen === 'play' || this.screen === 'paused' || this.screen === 'shop';
     const fight = inGame && sim.mode === 'combat' && !sim.opening && !sim.outcome;
-    this.music.update(fight ? 'fight' : inGame && sim.area === 'forest' ? 'forest' : 'farm');
+    // Earwhen's theme from his leap over the gate, and through every one of his fights
+    const earwhenHere = sim.bots.some((b) => b.kind === 'earwhen');
+    const earwhen = inGame && !sim.outcome && ((sim.A.active && sim.A.state === 'calling' && earwhenHere) || (fight && sim.course >= FINALE));
+    this.music.update(earwhen ? 'earwhen' : fight ? 'fight' : inGame && sim.area === 'forest' ? 'forest' : 'farm');
   }
 
   private updateIdle(dt: number) {
@@ -1710,6 +1715,7 @@ export class Game {
     /* present */
     this.syncAll(sdt);
     this.animateNpcs(dt);
+    this.animateCallNpcs();
     const scare = sim.players.map((p) => ({ x: p.x, z: p.z }));
     if (sim.A.active) scare.push({ x: sim.A.x, z: sim.A.z });
     if (sim.area === 'forest') this.forest?.update(this.time);
@@ -2743,11 +2749,59 @@ export class Game {
     cam.lookAt(view.look[0], view.look[1], view.look[2]);
   }
 
-  /** The backup call: the camera frames Allen on the phone, then Earwhen leaping in. */
+  /** Where Kingger ends up during the backup call: right in front of Charig. */
+  private callNpcSpots() {
+    const end = { x: SPOT.charig.x + 1.9, z: SPOT.charig.z + 1.3 };
+    const start = { x: SPOT.charig.x + 10, z: SPOT.charig.z + 7 };
+    return { start, end };
+  }
+
+  /** In the backup call, Kingger dashes up to Charig in a panic; afterwards he goes back to his lab. */
+  private animateCallNpcs() {
+    const A = this.sim.A;
+    const K = this.king;
+    const C = this.charig;
+    const t = A.active && A.state === 'calling' ? A.t : -1;
+    if (t < 10.2) {
+      if (this.kingAway) {
+        this.kingAway = false;
+        K.root.position.set(SPOT.kingger.x, 0, SPOT.kingger.z);
+        K.root.visible = this.sim.area === 'farm';
+      }
+      return;
+    }
+    this.kingAway = true;
+    const { start, end } = this.callNpcSpots();
+    const run = clamp((t - 10.2) / 1.1, 0, 1);
+    const T = this.time;
+    K.root.visible = true;
+    K.root.position.set(lerp(start.x, end.x, run), run < 1 ? Math.abs(Math.sin(T * 14)) * 0.25 : 0, lerp(start.z, end.z, run));
+    const toC = Math.atan2(C.root.position.x - K.root.position.x, C.root.position.z - K.root.position.z);
+    K.root.rotation.y = toC;
+    C.root.rotation.y = Math.atan2(K.root.position.x - C.root.position.x, K.root.position.z - C.root.position.z);
+    // arms flailing as he runs, then waving wildly as he warns him
+    K.armR.rotation.x = -2.6 + Math.sin(T * 16) * 0.5;
+    K.armL.rotation.x = -2.6 - Math.sin(T * 16) * 0.5;
+    if (K.spin) K.spin.rotation.y += 0.8;
+    // Charig takes a step back
+    C.armR.rotation.x = run >= 1 ? -1.2 : 0;
+    C.head.rotation.x = run >= 1 ? -0.15 : 0;
+  }
+
+  /** The backup call: the camera frames Allen on the phone, then Earwhen leaping in, then Kingger finding Charig. */
   private updateCallCamera(dt: number) {
     const A = this.sim.A;
     const W = this.sim.bots.find((b): b is EarwhenBot => b.kind === 'earwhen');
     const t = A.t;
+    if (t >= 10.2) {
+      const { end } = this.callNpcSpots();
+      const mx = (end.x + SPOT.charig.x) / 2;
+      const mz = (end.z + SPOT.charig.z) / 2;
+      this.camera.position.lerp(this.tmp.set(mx + 3.5, 3.4, mz + 8.5), 1 - Math.exp(-(t < 10.5 ? 30 : 3) * dt));
+      this.camLook.lerp(this.tmp.set(mx, 2.4, mz), 1 - Math.exp(-(t < 10.5 ? 30 : 4) * dt));
+      this.camera.lookAt(this.camLook);
+      return;
+    }
     const fx = Math.sin(A.heading);
     const fz = Math.cos(A.heading);
     const sx = fz;
@@ -3291,6 +3345,13 @@ export class Game {
     let legs = stride * 0.5;
     m.charge.visible = false;
     switch (b.act) {
+      case 'leapWind':
+        squash = 0.8;
+        lean = 0.2;
+        arms = -0.6;
+        jaw = 1.8;
+        break;
+      case 'leap':
       case 'arrive':
         arms = -2.6;
         legs = 0.7;
@@ -3966,9 +4027,10 @@ export class Game {
       screen: this.screen,
       mode: sim.mode,
       area: sim.area,
-      course: ci,
-      courseName: sim.course >= FINALE ? EARWHEN.name : COURSES[ci].name,
-      courseCount: sim.course >= FINALE ? FINALE + 1 : COURSES.length,
+      // Earwhen's stages count up on their own: "Earwhen 3/9"
+      course: sim.course >= FINALE ? earwhenStage(sim.course) : ci,
+      courseName: sim.course >= FINALE ? `Earwhen: ${EARWHEN_STAGES[earwhenStage(sim.course)]}` : COURSES[ci].name,
+      courseCount: sim.course >= FINALE ? EARWHEN_STAGES.length : COURSES.length,
       hp: Math.ceil(k.hp),
       maxHp: k.maxHp,
       stam: k.stam,
@@ -4021,6 +4083,8 @@ export class Game {
                         ? 'Mega Dollop — watch the white ring!'
                         : W.act === 'robotWind' || W.act === 'robots'
                           ? 'Flaming Robots — get out of the orange rings!'
+                          : W.act === 'leapWind' || W.act === 'leap'
+                            ? 'Cream Quake — move off the white ring!'
                         : W.rage
                           ? 'ENRAGED'
                           : 'Cream enthusiast',

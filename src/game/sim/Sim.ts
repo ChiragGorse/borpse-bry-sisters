@@ -3,7 +3,7 @@
  * rendering, DOM or audio. The browser view (../Game.ts) and a future multiplayer server both drive it by
  * calling `step(dt, inputs)` and presenting `drainEvents()` plus the public state.
  */
-import { COURSES, EARWHEN, FINALE, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
+import { COURSES, EARWHEN, EARWHEN_STAGES, FINALE, LAST_COURSE, earwhenStage, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
 import type { SfxName } from '../audio';
 import {
   BOUND,
@@ -100,6 +100,12 @@ const EARWHEN_DMG_PER_PLAYER = 0.62;
 const EARWHEN_HP_PER_PLAYER = 0.9;
 /** Blast radius of one of Earwhen's flaming robots. */
 const ROBOT_BLAST = 2.9;
+/** Landing radius of Earwhen's Cream Quake leap. */
+const LEAP_R = 4.2;
+/** Seconds after a stagger before Earwhen can be staggered again. */
+const EARWHEN_STEADY = 10;
+/** Seconds the backup-call story moment lasts. */
+export const BACKUP_CALL_END = 15.2;
 export const MAX_PLAYERS = 8;
 export const HOG_TINTS = [0xf2b38a, 0xe8a0b4, 0xffc9a8, 0xd9a0a0, 0xf7d0b0, 0xe9b9d9];
 /** Skin colours for players 1..8 (player 1 is the classic pink Kenji). */
@@ -308,6 +314,10 @@ export class Sim {
   private huntedCourse = -1;
   /** Seconds until Path Guppy's next jump scare. */
   private scareT = 0;
+  /** Seconds until an Earwhen stage he fought alone counts as cleared. */
+  private clearT = 0;
+  /** Kitchen waves Earwhen calls in during his solo stages. */
+  private earwhenWaveT = 8;
   forestHint = 'Follow Herb into the dark.';
   sniffCd = 0;
   sniffTime = 0;
@@ -971,13 +981,23 @@ export class Sim {
     this.sound('bell');
     this.events.push({ t: 'bell' });
     if (finale) {
-      // a battered Allen, with backup
-      A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * EARWHEN.allenHp);
-      // a big herd also has to break one sauce shield first
-      A.phases = this.players.length > 1 ? 2 : 1;
+      const st = earwhenStage(this.course);
+      const last = this.course >= LAST_COURSE;
+      if (st === 0 || last) {
+        // Allen fights beside him: battered in the first stage, back for revenge in the last
+        A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * (last ? 0.7 : EARWHEN.allenHp));
+        // a big herd also has to break a sauce shield first
+        A.phases = this.players.length > 1 ? (last ? 3 : 2) : last ? 2 : 1;
+        this.say('Allen', last ? "One last course. Earwhen, together. NOW!" : 'EARWHEN! Cream them!', 4.4);
+      } else {
+        // the stages in between are Earwhen's alone
+        A.active = false;
+        A.state = 'gone';
+        this.say('Earwhen', this.pick(['Round two. I brought more cream.', 'You thought that was all of it?', 'Allen is resting. I am not.', 'Extra whipped. Extra mean.']), 4);
+      }
       this.spawnEarwhen(5, 78, 4.5, 58);
-      this.showBanner(`FINAL COURSE · ${EARWHEN.name.toUpperCase()}`, 'Allen brought backup');
-      this.say('Allen', 'EARWHEN! Cream them!', 4.4);
+      this.showBanner(`EARWHEN ${st + 1}/${EARWHEN_STAGES.length} · ${EARWHEN_STAGES[st].toUpperCase()}`, st === 0 ? 'Allen brought backup' : last ? 'Earwhen and Allen, together, at full strength' : 'Earwhen is back for more');
+      this.earwhenWaveT = 8;
     } else {
       this.showBanner(`COURSE ${this.course + 1}/${COURSES.length} · ${c.name.toUpperCase()}`, c.newFoe ?? 'Allen B. Hwang is at the gate');
       this.say('Allen', c.intro, 4.4);
@@ -1025,7 +1045,7 @@ export class Sim {
     this.fx.dustRing(A.x, 0.1, A.z, 16, 1.6, 0xe8d9be, 10, 2.6, 0.95);
     const lossNote = this.courseFallen > 0 ? ` · ${this.courseFallen} hog${this.courseFallen > 1 ? 's' : ''} fallen` : '';
     if (finale) {
-      this.say('Allen', W ? 'Earwhen… finish them… for me…' : 'Fine… FINE! I\'ll… I\'ll try the tofu.', 4);
+      this.say('Allen', W ? 'Earwhen… finish them… for me…' : this.course >= LAST_COURSE ? 'Fine… FINE! I\'ll… I\'ll try the tofu.' : 'I need… a nap. Earwhen will be back.', 4);
       if (W) {
         W.rage = true;
         this.floatText(W.x, 5, W.z, 'ENRAGED!', 'hurt');
@@ -1051,8 +1071,14 @@ export class Sim {
     this.scatterTruffles(7);
     this.greeted = { rickley: false, kingger: false, trout: false, kioff: false, charig: false };
     if (this.course === FINALE) {
-      this.showBanner('BACKUP IS ON THE WAY', 'Allen called Earwhen · gear up, then ring the bell for the final course');
+      this.showBanner('BACKUP IS ON THE WAY', 'Allen called Earwhen · gear up, then ring the bell');
       this.say('Kingger', 'Earwhen?! He fires whipped cream at four hundred PSI. Upgrade. EVERYTHING.', 5.5);
+      return;
+    }
+    if (this.course > FINALE) {
+      const st = earwhenStage(this.course);
+      this.showBanner('EARWHEN RETREATS… FOR NOW', `Next: Earwhen ${st + 1}/${EARWHEN_STAGES.length} · ${EARWHEN_STAGES[st]}`);
+      this.say('Kingger', this.course >= LAST_COURSE ? 'One more. Allen is coming back with him. This is it.' : this.pick(['He is getting stronger every time. Stock up.', 'My readings say his cream pressure just doubled.', 'Upgrade everything you can. I am not joking this time.']), 5);
       return;
     }
     this.say(
@@ -1144,6 +1170,10 @@ export class Sim {
       if (this.allenBreak <= 0) this.beginCourse();
     }
     this.dummyCoachCd = Math.max(0, this.dummyCoachCd - dt);
+    if (this.clearT > 0) {
+      this.clearT -= dt;
+      if (this.clearT <= 0 && !this.outcome && !this.overReason) this.earwhenStageCleared();
+    }
 
     // timers
     if (this.subtitle) {
@@ -3949,11 +3979,7 @@ export class Sim {
       }
       case 'ko': {
         // in the finale, the farm is only safe once Earwhen is down too
-        if (A.t >= 3.4 && !this.outcome && !this.earwhen()) {
-          this.outcome = 'victory';
-          this.sound('win');
-          this.dirty = true;
-        }
+        if (A.t >= 3.4 && !this.outcome && !this.earwhen()) this.earwhenStageCleared();
         break;
       }
       default:
@@ -4156,10 +4182,33 @@ export class Sim {
     return null;
   }
 
+  /** An Earwhen stage is won: on to the next one, or (after the last) the farm is saved. */
+  private earwhenStageCleared() {
+    if (this.outcome) return;
+    this.clearT = 0;
+    if (this.course >= LAST_COURSE) {
+      this.outcome = 'victory';
+      this.sound('win');
+      this.dirty = true;
+      return;
+    }
+    const bonus = 40 + 12 * earwhenStage(this.course);
+    this.truffles += bonus;
+    this.stats.earned += bonus;
+    this.bots = [];
+    this.projs = [];
+    this.puddles = [];
+    this.endCourse();
+    this.dirty = true;
+  }
+
   /** Earwhen leaps over the fence from (fx, fz) and lands at (tx, tz). */
   private spawnEarwhen(fx: number, fz: number, tx: number, tz: number) {
     this.bots = this.bots.filter((b) => b.kind !== 'earwhen');
-    const hp = Math.round(EARWHEN.hp * (1 + EARWHEN_HP_PER_PLAYER * Math.max(0, this.players.length - 1)));
+    const st = Math.max(0, earwhenStage(this.course));
+    // tougher every stage; in the last one Allen is back too, so Earwhen's growth is capped there
+    const grow = this.course >= LAST_COURSE ? 1.5 : 1 + 0.12 * st;
+    const hp = Math.round(EARWHEN.hp * (1 + EARWHEN_HP_PER_PLAYER * Math.max(0, this.players.length - 1)) * grow);
     this.bots.push({
       id: this.id(),
       kind: 'earwhen',
@@ -4167,7 +4216,7 @@ export class Sim {
       x: fx, z: fz, hp, maxHp: hp, rad: 1.5, heading: Math.atan2(tx - fx, tz - fz),
       bite: 1.5, stun: 0, kx: 0, kz: 0, chomp: 0, flash: 0, ph: 0,
       mode: 'idle', mt: 0, lx: fx, lz: fz, strafe: this.rnd() < 0.5 ? -1 : 1, hop: 0, moving: false, swing: 0,
-      aim: Math.atan2(tx - fx, tz - fz), cdSpray: 1.5, cdStream: 3, cdBlob: 5, cdRobots: 7, hunger: EARWHEN.hunger, target: -1, shots: 0, poise: 0,
+      aim: Math.atan2(tx - fx, tz - fz), cdSpray: 1.5, cdStream: 3, cdBlob: 5, cdRobots: 7, cdLeap: 6, steady: 0, hunger: EARWHEN.hunger, target: -1, shots: 0, poise: 0,
       tx, tz, rage: false,
     });
     this.sound('jump');
@@ -4199,8 +4248,10 @@ export class Sim {
       this.spawnEarwhen(tx + 2, 78, tx, tz);
     }
     if (at(6.3)) this.say('Earwhen', 'Did somebody say… DINNER?', 3);
-    if (at(8.6)) this.say('Allen', "Next course, bacon. You're getting WHIPPED.", 3);
-    if (now >= 10.6) this.endCourse();
+    if (at(8.6)) this.say('Allen', "Next course, bacon. You're getting WHIPPED.", 2.6);
+    // meanwhile, over by the farmhouse, Kingger runs up to Charig with the news
+    if (at(11.4)) this.say('Kingger', 'The tickling is coming… The tickling of Earwhen!!!', 3.6);
+    if (now >= BACKUP_CALL_END) this.endCourse();
   }
 
   private hitEarwhen(b: EarwhenBot, dmg: number, kx: number, kz: number, heavy: boolean) {
@@ -4218,7 +4269,8 @@ export class Sim {
       this.earwhenDown(b);
       return;
     }
-    // enough punishment staggers him, even mid-attack
+    // enough punishment staggers him, even mid-attack (but not again right after the last time)
+    if (b.steady > 0) return;
     b.poise += d * (heavy ? 1.5 : 1);
     const poiseMax = 520 * (1 + 0.45 * Math.max(0, this.players.length - 1));
     if (b.poise >= poiseMax && b.act !== 'stagger') {
@@ -4226,6 +4278,7 @@ export class Sim {
       b.act = 'stagger';
       b.mt = 0;
       b.target = -1;
+      b.steady = EARWHEN_STEADY;
       this.sound('stun');
       this.floatText(b.x, 5.2, b.z, 'STAGGERED!', 'crit');
       this.fx.sparks(b.x, 4.4, b.z, 16, 0xffd23f, 6, 0.15, 0.7, { up: 1, grav: 4, hdr: 3 });
@@ -4244,11 +4297,16 @@ export class Sim {
     this.fx.sparks(b.x, 3, b.z, 50, 0xfffaf0, 14, 0.22, 0.9, { up: 1, grav: 12, hdr: 1.3, altColor: 0xffd23f });
     this.fx.groundMark(b.x, 0, b.z, 4.5, 'splash', 0xfffaf0, 4);
     for (let i = 0; i < 5; i++) this.spawnTruffle(b.x, b.z, true);
-    this.say('Earwhen', 'My… cream… has… curdled…', 3.6);
+    this.say('Earwhen', this.course >= LAST_COURSE ? 'My… cream… has… curdled… for good…' : this.pick(['This isn\'t over. I have MORE cream.', 'I\'ll be back. Extra whipped.', 'You got lucky. Next time, no mercy.']), 3.6);
     const A = this.A;
+    const last = this.course >= LAST_COURSE;
     if (A.state === 'ko') {
       A.t = 0; // the farm is saved a moment from now
-      this.showBanner('EARWHEN IS DOWN', 'The feast is finally over');
+      this.showBanner('EARWHEN IS DOWN', last ? 'The feast is finally over' : 'He crawls back through the gate…');
+    } else if (!A.active) {
+      // he was on his own this stage
+      this.clearT = 3;
+      this.showBanner('EARWHEN IS DOWN', 'He crawls back through the gate…');
     } else if (A.active && A.hp > 0) {
       A.tilt = Math.max(A.tilt, 12);
       this.showBanner('EARWHEN IS DOWN', 'Just Allen left, and he is LIVID');
@@ -4318,17 +4376,45 @@ export class Sim {
       b.aim = b.heading;
       return;
     }
-    const rage = (b.rage ? 0.7 : 1) * EARWHEN.cooldown;
-    const dm = EARWHEN.dmg * (1 + EARWHEN_DMG_PER_PLAYER * Math.max(0, this.players.length - 1)) * (b.rage ? 1.25 : 1);
+    // later stages: harder hits, quicker attacks, bigger volleys
+    const st = Math.max(0, earwhenStage(this.course));
+    // fighting alone (the middle stages) he goes all out
+    const solo = !this.A.active;
+    const rage = (b.rage ? 0.7 : 1) * EARWHEN.cooldown * Math.max(0.55, 1 - 0.05 * st) * (solo ? 0.85 : 1);
+    const dm = EARWHEN.dmg * (1 + EARWHEN_DMG_PER_PLAYER * Math.max(0, this.players.length - 1)) * (b.rage ? 1.25 : 1) * (1 + 0.07 * st) * (solo ? 1.1 : 1);
     b.cdSpray -= dt;
     b.cdStream -= dt;
     b.cdBlob -= dt;
     b.cdRobots -= dt;
+    b.cdLeap -= dt;
+    // from stage 3, he loses his temper at half health
+    if (st >= 2 && !b.rage && b.hp < b.maxHp * 0.5) {
+      b.rage = true;
+      this.floatText(b.x, 5, b.z, 'ENRAGED!', 'hurt');
+      this.sound('roar');
+      this.say('Earwhen', this.pick(['NOW I\'m mad.', 'You curdled my cream. You will PAY.', 'No more Mr. Nice Dairy.']), 2.6);
+    }
+    // on his own he calls in the kitchen brigade
+    if (!this.A.active && st >= 2 && this.mode === 'combat') {
+      this.earwhenWaveT -= dt;
+      if (this.earwhenWaveT <= 0) {
+        this.earwhenWaveT = Math.max(8, 16 - st);
+        const room = this.maxBots() - this.bots.length;
+        if (room > 1) this.spawnBots(Math.min(room - 1, 1 + Math.floor(st / 2)), true);
+      }
+    }
     b.hunger -= dt;
     const anyAlive = this.living().length > 0;
     if (!anyAlive || this.overReason || this.mode !== 'combat') return;
-    // stuns barely slow him down
-    b.stun = Math.min(b.stun, 0.25);
+    // stuns barely slow him down, and not at all for a while after one
+    b.steady = Math.max(0, b.steady - dt);
+    if (b.stun > 0) {
+      if (b.steady > 0) b.stun = 0;
+      else {
+        b.stun = Math.min(b.stun, 0.25);
+        b.steady = 3;
+      }
+    }
     if (b.stun > 0) return;
     const tgt = this.pickBotTarget(b, 0.95);
     const dx = tgt.x - b.x;
@@ -4384,11 +4470,12 @@ export class Sim {
         }
         if (b.bite > 0) break;
         // whichever attack in range has been waiting longest (point-blank, he favours the spray)
-        const opts: ['spray' | 'stream' | 'blob' | 'robots', number][] = [];
+        const opts: ['spray' | 'stream' | 'blob' | 'robots' | 'leap', number][] = [];
         if (d < 10 && b.cdSpray <= 0) opts.push(['spray', b.cdSpray - (d < 6 ? 2 : 0)]);
         if (d < 22 && b.cdStream <= 0) opts.push(['stream', b.cdStream]);
         if (d < 26 && b.cdBlob <= 0) opts.push(['blob', b.cdBlob]);
         if (d < 28 && b.cdRobots <= 0) opts.push(['robots', b.cdRobots]);
+        if (st >= 2 && d < 24 && b.cdLeap <= 0) opts.push(['leap', b.cdLeap - (d < 5 ? 2 : 0)]);
         if (!opts.length) break;
         opts.sort((x, y) => x[1] - y[1]);
         const pick = opts[0][0];
@@ -4406,6 +4493,15 @@ export class Sim {
           b.act = 'blobWind';
           this.sound('hiss');
           this.floatText(b.x, 5, b.z, 'MEGA DOLLOP!', 'hurt');
+        } else if (pick === 'leap') {
+          // Cream Quake: he crouches, marks where you are, and comes down on it
+          b.act = 'leapWind';
+          const pk = tgt.player;
+          b.tx = clamp(pk ? pk.x + pk.vx * 0.4 : tgt.x, -BOUND + 3, BOUND - 3);
+          b.tz = clamp(pk ? pk.z + pk.vz * 0.4 : tgt.z, -BOUND + 3, BOUND - 3);
+          this.fx.groundMark(b.tx, 0, b.tz, LEAP_R, 'splash', 0xfffaf0, 1.9);
+          this.sound('roar');
+          this.floatText(b.x, 5, b.z, 'CREAM QUAKE!', 'hurt');
         } else {
           b.act = 'robotWind';
           this.sound('clang');
@@ -4440,7 +4536,7 @@ export class Sim {
         if (tick !== b.shots) {
           b.shots = tick;
           const R = 9.5;
-          const HALF = 0.55;
+          const HALF = 0.55 + 0.04 * st;
           for (const p of this.players) {
             const px = p.x - b.x;
             const pz = p.z - b.z;
@@ -4457,7 +4553,7 @@ export class Sim {
             if (Math.hypot(ax, az) < R && off < HALF) this.hurtAlly(a, 3.6 * dm);
           }
         }
-        if (b.mt >= 1.5) {
+        if (b.mt >= 1.5 + 0.1 * st) {
           b.act = 'stalk';
           b.mt = 0;
           b.cdSpray = 6.5 * rage;
@@ -4483,19 +4579,24 @@ export class Sim {
         b.aim = angLerp(b.aim, Math.atan2(ax - b.x, az - b.z), 5 * dt);
         b.heading = b.aim;
         const due = Math.floor(b.mt / 0.11);
-        if (due > b.shots && b.shots < 12) {
+        const shots = 12 + 2 * st;
+        // two streams from stage 4, three from stage 7
+        const fan = st >= 6 ? [-0.22, 0, 0.22] : st >= 3 ? [-0.14, 0.14] : [0];
+        if (due > b.shots && b.shots < shots) {
           b.shots++;
           const n = nozzle();
-          const spread = this.rand(-0.05, 0.05);
-          const sp = 26;
-          this.projs.push({
-            id: this.id(), x: n.x, y: 1.7, z: n.z,
-            vx: Math.sin(b.aim + spread) * sp, vy: 0, vz: Math.cos(b.aim + spread) * sp,
-            life: 1.1, dmg: 3.4 * dm, kind: 'cream',
-          });
+          const sp = 26 + st;
+          for (const f of fan) {
+            const spread = f + this.rand(-0.05, 0.05);
+            this.projs.push({
+              id: this.id(), x: n.x, y: 1.7, z: n.z,
+              vx: Math.sin(b.aim + spread) * sp, vy: 0, vz: Math.cos(b.aim + spread) * sp,
+              life: 1.1, dmg: 3.4 * dm, kind: 'cream',
+            });
+          }
           if (b.shots % 3 === 1) this.sound('throw');
         }
-        if (b.shots >= 12 && b.mt > 1.45) {
+        if (b.shots >= shots && b.mt > shots * 0.11 + 0.15) {
           b.act = 'stalk';
           b.mt = 0;
           b.cdStream = 5.5 * rage;
@@ -4513,15 +4614,21 @@ export class Sim {
           const pk = tgt.player;
           const tx = clamp(pk ? pk.x + pk.vx * 0.5 : tgt.x, -BOUND + 2, BOUND - 2);
           const tz = clamp(pk ? pk.z + pk.vz * 0.5 : tgt.z, -BOUND + 2, BOUND - 2);
-          const flight = clamp(Math.hypot(tx - n.x, tz - n.z) / 16, 0.6, 1.25);
-          const y0 = 2.4;
-          this.projs.push({
-            id: this.id(), x: n.x, y: y0, z: n.z,
-            vx: (tx - n.x) / flight, vy: (0.3 - y0 + 0.5 * 22 * flight * flight) / flight, vz: (tz - n.z) / flight,
-            life: flight + 0.4, dmg: 19 * dm, kind: 'blob',
-          });
-          // a white ring shows where it lands
-          this.fx.groundMark(tx, 0, tz, 3.6, 'splash', 0xfffaf0, flight + 0.2);
+          // one big dollop, plus more scattered round you in later stages
+          const dollops = 1 + Math.floor(st / 3);
+          for (let i = 0; i < dollops; i++) {
+            const ox = i === 0 ? tx : clamp(tx + this.rand(-6, 6), -BOUND + 2, BOUND - 2);
+            const oz = i === 0 ? tz : clamp(tz + this.rand(-6, 6), -BOUND + 2, BOUND - 2);
+            const flight = clamp(Math.hypot(ox - n.x, oz - n.z) / 16, 0.6, 1.25) + i * 0.15;
+            const y0 = 2.4;
+            this.projs.push({
+              id: this.id(), x: n.x, y: y0, z: n.z,
+              vx: (ox - n.x) / flight, vy: (0.3 - y0 + 0.5 * 22 * flight * flight) / flight, vz: (oz - n.z) / flight,
+              life: flight + 0.4, dmg: 19 * dm, kind: 'blob',
+            });
+            // a white ring shows where it lands
+            this.fx.groundMark(ox, 0, oz, 3.6, 'splash', 0xfffaf0, flight + 0.2);
+          }
           this.sound('pop');
           this.sound('throw');
           b.act = 'blob';
@@ -4544,7 +4651,7 @@ export class Sim {
       }
       case 'robots': {
         // a volley of burning robots, lobbed around where you're standing (and where you're running)
-        const count = b.rage ? 4 : 3;
+        const count = (b.rage ? 4 : 3) + Math.floor(st / 2);
         const due = Math.floor(b.mt / 0.22);
         if (due >= b.shots && b.shots < count) {
           const pk = tgt.player;
@@ -4575,6 +4682,40 @@ export class Sim {
           b.bite = 1.0 * rage;
         }
         break;
+      }
+      case 'leapWind': {
+        // crouched, quivering, staring at the white ring
+        b.heading = angLerp(b.heading, Math.atan2(b.tx - b.x, b.tz - b.z), 8 * dt);
+        b.aim = b.heading;
+        if (b.mt >= Math.max(0.55, 0.95 * rage)) {
+          b.act = 'leap';
+          b.mt = 0;
+          b.lx = b.x;
+          b.lz = b.z;
+          this.sound('jump');
+        }
+        break;
+      }
+      case 'leap': {
+        const p = Math.min(1, b.mt / 0.85);
+        b.x = lerp(b.lx, b.tx, p);
+        b.z = lerp(b.lz, b.tz, p);
+        b.hop = Math.sin(p * PI) * 9;
+        if (p >= 1) {
+          b.hop = 0;
+          b.act = 'stalk';
+          b.mt = 0;
+          b.cdLeap = 10 * rage;
+          b.bite = 1.2 * rage;
+          this.sound('slam');
+          this.addShake(0.9);
+          this.fx.shockWall(b.x, 0.1, b.z, 0xfffaf0, 1, LEAP_R * 1.2, 0.9, 3, 0.5, 6);
+          this.fx.dustRing(b.x, 0.1, b.z, 16, 1.4, 0xe8d9be, 9, 2.4, 0.8);
+          this.hurtPlayersNear(b.x, b.z, LEAP_R, 1.6, 11 * dm, b.x, b.z, 16);
+          this.hitAlliesNear(b.x, b.z, LEAP_R, 10 * dm);
+          this.spawnPuddle(b.x, b.z, 4 * dm, true);
+        }
+        return;
       }
       case 'blob': {
         if (b.mt >= 0.7) {
@@ -5345,7 +5486,7 @@ export class Sim {
           if (e) this.startHunt();
         }
       } else if (near(SPOT.bell, 5)) {
-        k.prompt = `E|Ring the Dinner Bell — start ${this.course >= FINALE ? 'the final course' : `Course ${this.course + 1}`}`;
+        k.prompt = `E|Ring the Dinner Bell — start ${this.course >= FINALE ? `Earwhen ${earwhenStage(this.course) + 1}/${EARWHEN_STAGES.length}` : `Course ${this.course + 1}`}`;
         if (e) this.beginCourse();
       }
     } else if (near(SPOT.rickley, 5.5)) {

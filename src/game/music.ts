@@ -8,11 +8,13 @@
  */
 import { getVolume } from './volume';
 
-export type MusicMood = 'farm' | 'forest' | 'fight';
+export type MusicMood = 'farm' | 'forest' | 'fight' | 'earwhen';
 
 const FARM_TRACKS = ['music/ballad.mp3', 'music/island.mp3'];
 const FIGHT_TRACK = 'music/fight.mp3';
 const FOREST_TRACK = 'music/forest.mp3';
+/** Earwhen's theme: from the moment he leaps over the gate, and all through his fights. */
+const EARWHEN_TRACK = 'music/earwhen.mp3';
 const VOLUME = 0.42;
 /** Seconds for a full fade in or out. */
 const FADE = 1.6;
@@ -27,6 +29,7 @@ export class Music {
   private farm: Track[] = [];
   private fight: Track | null = null;
   private forest: Track | null = null;
+  private earwhen: Track | null = null;
   private farmIdx = 0;
   private unlocked = false;
   private lastT = 0;
@@ -63,6 +66,7 @@ export class Music {
     );
     this.fight = this.make(FIGHT_TRACK, true);
     this.forest = this.make(FOREST_TRACK, true);
+    this.earwhen = this.make(EARWHEN_TRACK, true);
   }
 
   setMuted(m: boolean) {
@@ -74,7 +78,7 @@ export class Music {
   }
 
   private all(): Track[] {
-    return [...this.farm, ...(this.fight ? [this.fight] : []), ...(this.forest ? [this.forest] : [])];
+    return [...this.farm, ...(this.fight ? [this.fight] : []), ...(this.forest ? [this.forest] : []), ...(this.earwhen ? [this.earwhen] : [])];
   }
 
   private apply(t: Track) {
@@ -106,12 +110,14 @@ export class Music {
       }
       // a new fight starts the fight song from the top once the old one has faded out
       if (mood === 'fight' && this.fight && this.fight.level <= 0.01) this.fight.el.currentTime = 0;
+      if (mood === 'earwhen' && this.earwhen && this.earwhen.level <= 0.01) this.earwhen.el.currentTime = 0;
       this.mood = mood;
     }
     const step = dt / FADE;
     this.farm.forEach((t, i) => this.fade(t, mood === 'farm' && i === this.farmIdx, step));
     if (this.fight) this.fade(this.fight, mood === 'fight', step);
     if (this.forest) this.fade(this.forest, mood === 'forest', step);
+    if (this.earwhen) this.fade(this.earwhen, mood === 'earwhen', step);
   }
 
   private fade(t: Track, on: boolean, step: number) {
@@ -131,5 +137,6 @@ export class Music {
     this.farm = [];
     this.fight = null;
     this.forest = null;
+    this.earwhen = null;
   }
 }

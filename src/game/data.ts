@@ -628,6 +628,22 @@ export const OPENING_BEATS = 10;
  * course) is the fight against Earwhen with a battered Allen at his side.
  */
 export const FINALE = COURSES.length;
+/** Earwhen's stages, from the first fight (with Allen) to the last; each one hits harder. */
+export const EARWHEN_STAGES = [
+  "Earwhen's Feast",
+  'Second Helping of Cream',
+  'Whipped Into Shape',
+  'Robot Roast',
+  'The Curdling',
+  'Dairy Nightmare',
+  'Cream of the Crop',
+  'Ultra-Pasteurized',
+  'The Last Dollop',
+];
+/** The very last course of the game. */
+export const LAST_COURSE = FINALE + EARWHEN_STAGES.length - 1;
+/** Earwhen stage (0-based) for a course index, or -1 before the finale. */
+export const earwhenStage = (course: number) => (course >= FINALE ? Math.min(course - FINALE, EARWHEN_STAGES.length - 1) : -1);
 export const EARWHEN = {
   name: "Earwhen's Feast",
   /** Earwhen's health, before the herd-size scaling. */

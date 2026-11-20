@@ -214,7 +214,7 @@ export type KitchenBot = BotBody & { kind: BotKind };
  * What Earwhen is doing: leaping in, stalking, his three cream attacks (a wide Spray, a rapid Stream of
  * pellets, a charged Mega Dollop blob), wandering off to snack, or staggered.
  */
-export type EarwhenAct = 'arrive' | 'stalk' | 'sprayWind' | 'spray' | 'streamWind' | 'stream' | 'blobWind' | 'blob' | 'robotWind' | 'robots' | 'toEat' | 'eating' | 'stagger';
+export type EarwhenAct = 'arrive' | 'stalk' | 'sprayWind' | 'spray' | 'streamWind' | 'stream' | 'blobWind' | 'blob' | 'robotWind' | 'robots' | 'leapWind' | 'leap' | 'toEat' | 'eating' | 'stagger';
 export type EarwhenBot = BotBody & {
   kind: 'earwhen';
   act: EarwhenAct;
@@ -225,6 +225,10 @@ export type EarwhenBot = BotBody & {
   cdBlob: number;
   /** Cooldown of the Flaming Robots volley. */
   cdRobots: number;
+  /** Cooldown of his Cream Quake leap (from stage 3 on). */
+  cdLeap: number;
+  /** Seconds he can't be staggered or properly stunned again (after a stagger or a stun). */
+  steady: number;
   hunger: number;
   /** Edible he's heading for or eating, or -1. */
   target: number;

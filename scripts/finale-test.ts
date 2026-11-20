@@ -5,7 +5,8 @@
  *   npm run finale:test -- [pigs=3] [seed=7]
  */
 import { headlessMaps } from '../server/maps';
-import { COURSES, FINALE } from '../src/game/data';
+import { COURSES, EARWHEN_STAGES, FINALE, LAST_COURSE } from '../src/game/data';
+import { BACKUP_CALL_END } from '../src/game/sim/Sim';
 import { Sim } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import type { EarwhenBot, PlayerInput } from '../src/game/sim/types';
@@ -55,7 +56,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   if (!run(sim, 4, () => sim.A.state === 'calling')) fail('Allen never called for backup after the Grand Feast');
   ok('Grand Feast beaten: Allen gets on the phone');
   let landed = false;
-  run(sim, 15, () => {
+  run(sim, BACKUP_CALL_END + 4, () => {
     const W = earwhen(sim);
     if (W && W.act !== 'arrive') landed = true;
     return sim.mode === 'intermission';
@@ -102,9 +103,44 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
     ok('Allen is down but Earwhen fights on, enraged');
     S.damageBot(w, 1e6, 0, 0, true);
   }
-  if (!run(sim, 6, () => !!sim.outcome, true)) fail('no victory after both went down');
-  if (sim.outcome !== 'victory') fail(`expected victory, got ${sim.outcome}`);
-  ok('both down: victory');
+  if (!run(sim, 8, () => sim.mode === 'intermission', true)) fail('stage 1 never ended after both went down');
+  if (sim.outcome) fail(`stage 1 of ${EARWHEN_STAGES.length} should not end the game (got ${sim.outcome})`);
+  if (sim.course !== FINALE + 1) fail(`expected Earwhen stage 2 next, got course ${sim.course}`);
+  ok(`both down: stage 1 cleared, on to Earwhen 2/${EARWHEN_STAGES.length}`);
+
+  /* 3b. a middle stage: Earwhen alone, stronger, with the Cream Quake and kitchen waves */
+  const firstHp = W!.maxHp;
+  sim.course = FINALE + 4;
+  S.beginCourse();
+  const W5 = earwhen(sim);
+  if (!W5) fail('no Earwhen in stage 5');
+  if (sim.A.active) fail('Allen should sit out the middle stages');
+  if (W5!.maxHp <= firstHp) fail('Earwhen should get tougher stage by stage');
+  const acts5 = new Set<string>();
+  let kitchen = 0;
+  run(sim, 70, () => {
+    const w5 = earwhen(sim);
+    if (w5) acts5.add(w5.act);
+    kitchen = Math.max(kitchen, sim.bots.filter((b) => b.kind !== 'earwhen').length);
+    return acts5.has('leap') && kitchen > 0;
+  }, true);
+  if (!acts5.has('leap')) fail(`never saw the Cream Quake in stage 5 (saw ${[...acts5].join(', ')})`);
+  if (!kitchen) fail('Earwhen should call in kitchen bots when he fights alone');
+  S.damageBot(earwhen(sim), 1e6, 0, 0, true);
+  if (!run(sim, 6, () => sim.mode === 'intermission', true) || sim.course !== FINALE + 5) fail(`clearing stage 5 should lead to stage 6, got course ${sim.course} mode ${sim.mode}`);
+  ok(`stage 5: Earwhen alone (${W5!.maxHp} HP vs ${firstHp}), Cream Quake and kitchen waves; cleared to stage 6`);
+
+  /* 3c. the last stage: both of them, and beating both wins the game */
+  sim.course = LAST_COURSE;
+  S.beginCourse();
+  if (!sim.A.active || !earwhen(sim)) fail('Allen and Earwhen should both be in the last stage');
+  run(sim, 2, undefined, true); // let him land: he can't be hit mid-leap
+  S.damageBot(earwhen(sim), 1e6, 0, 0, true);
+  if (earwhen(sim)) fail('Earwhen survived a million damage in the last stage');
+  run(sim, 2, undefined, true);
+  S.defeatAllen();
+  if (!run(sim, 8, () => !!sim.outcome, true) || sim.outcome !== 'victory') fail(`beating the last stage should win the game, got ${sim.outcome}`);
+  ok(`last stage (${EARWHEN_STAGES.length}/${EARWHEN_STAGES.length}): both down, victory`);
 }
 
 /* 4. Earwhen down first: Allen fights on, livid */
@@ -122,7 +158,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   run(sim, 5, undefined, true);
   if (sim.outcome) fail('won with Allen still standing');
   S.defeatAllen();
-  if (!run(sim, 8, () => !!sim.outcome, true) || sim.outcome !== 'victory') fail(`expected victory, got ${sim.outcome}`);
-  ok('Earwhen down first, then Allen: victory');
+  if (!run(sim, 8, () => sim.mode === 'intermission', true) || sim.course !== FINALE + 1 || sim.outcome) fail(`expected stage 2 next, got course ${sim.course} outcome ${sim.outcome}`);
+  ok('Earwhen down first, then Allen: stage cleared');
 }
 console.log('PASS');

@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.15',
+    date: '2026-11-20',
+    title: 'The Tickling of Earwhen',
+    changes: [
+      "Earwhen has his own theme music, from the moment he leaps over the gate and through every one of his fights.",
+      'Earwhen now has 9 stages instead of 1. Allen fights beside him in the first and the last; in between, Earwhen fights alone and calls in the kitchen brigade.',
+      'Every stage he gets tougher: more health, harder hits, faster attacks, a wider spray, twin and then triple cream streams, more Mega Dollops, bigger robot volleys, and he gets enraged at half health.',
+      'New attack from stage 3: the Cream Quake. He crouches, marks a white ring where you are, and comes crashing down on it.',
+      'Earwhen can no longer be stunlocked: after a stagger he can\u2019t be staggered again for 10 seconds, and stuns barely touch him.',
+      'In the backup call, Kingger runs up to Charig with a warning: "The tickling is coming… The tickling of Earwhen!!!"',
+      'Bot pigs now actually fight (and dodge) Earwhen when Allen isn\u2019t around.',
+    ],
+  },
+  {
     version: 'Beta 0.14.1',
     date: '2026-11-20',
     title: 'Back on Your Hooves',
