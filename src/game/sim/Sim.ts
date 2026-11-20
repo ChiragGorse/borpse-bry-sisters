@@ -87,7 +87,7 @@ const ALLEN_DMG = 1.18;
 const KITCHEN_DMG = 0.62;
 const KITCHEN_WAVE_GAP = 1.3;
 /** Seconds after a stun when Allen resists light stuns and his stagger bar won't fill. */
-const STUN_IMMUNITY = 12;
+const STUN_IMMUNITY = 14;
 /** Heavy (forced) stuns in that window last only this share of their usual time. */
 const STUN_RECOVERING = 0.25;
 /** Every stun on Allen lasts this share of its listed time. */
@@ -234,6 +234,8 @@ export function newAllen() {
     dropAcc: 0,
     stunDur: 0,
     stunImmune: 0,
+    /** A heavy stun already got through this immunity window (only one does). */
+    immuneHit: false,
     recoverDur: 0,
     sx: 0,
     sz: 0,
@@ -2501,8 +2503,13 @@ export class Sim {
     this.fx.sparks(A.x, A.y + 3.4, A.z, 18, 0x9fd8ff, 6, 0.14, 0.5, { hdr: 3.6, altColor: 0xff8fb0 });
     this.floatText(A.x, A.y + 5.4, A.z, 'SMASH BATTLES!', 'crit');
     A.tilt = 0;
-    this.stunAllen(lv >= 2 ? 3.5 : 2.5, true);
-    A.tiltQueued = true;
+    if (this.stunAllen(lv >= 2 ? 2.4 : 1.9, true)) A.tiltQueued = true;
+    else {
+      // he shrugged off the stun, but not the indignity
+      A.tilt = 15;
+      this.floatText(A.x, 6.2, A.z, 'TILTED!', 'hurt');
+      this.sound('roar');
+    }
     if (lv >= 2) {
       for (const b of this.bots) if (Math.hypot(b.x - p.x, b.z - p.z) < 6) b.stun = Math.max(b.stun, 2);
     }
@@ -2875,18 +2882,28 @@ export class Sim {
     this.A.recoverDur = dur;
   }
 
-  private stunAllen(dur: number, force: boolean) {
+  /**
+   * Stuns Allen, unless he resists it. Returns whether he was stunned. `earned` stuns (breaking his sauce
+   * shield, his dash smashing into a wall) are set pieces the herd worked for: they always land.
+   */
+  private stunAllen(dur: number, force: boolean, earned = false): boolean {
     const A = this.A;
-    if (!A.active || A.hp <= 0) return;
-    if (['defeated', 'leaving', 'ko', 'calling', 'gone', 'slamAir', 'spin', 'backrooms'].includes(A.state) || A.shielded) return;
-    if (A.stunImmune > 0) {
-      // fresh out of a stun he shrugs off the light stuff, and even big hits only rattle him briefly
-      if (!force) {
-        this.floatText(A.x, 5.2, A.z, 'RESISTED', 'info');
-        return;
+    if (!A.active || A.hp <= 0) return false;
+    if (['defeated', 'leaving', 'ko', 'calling', 'gone', 'slamAir', 'spin', 'backrooms'].includes(A.state) || A.shielded) return false;
+    // already stunned: a new stun doesn't restart it (that's how a herd used to keep him down forever)
+    if (A.state === 'stunned') return false;
+    if (A.stunImmune > 0 && !earned) {
+      // recently stunned: he shrugs off the light stuff, and only one big hit gets through, briefly
+      if (!force || A.immuneHit) {
+        this.floatText(A.x, 5.2, A.z, force ? 'SHRUGGED IT OFF' : 'RESISTED', 'info');
+        return false;
       }
+      A.immuneHit = true;
       dur = Math.max(0.5, dur * STUN_RECOVERING);
-      this.floatText(A.x, 5.2, A.z, 'SHRUGGED IT OFF', 'info');
+    } else {
+      // a fresh stun: he's resistant from now until well after it ends
+      A.immuneHit = false;
+      A.stunImmune = dur * STUN_SCALE + STUN_IMMUNITY;
     }
     this.setA('stunned');
     A.stunDur = dur * STUN_SCALE;
@@ -2895,6 +2912,7 @@ export class Sim {
     A.swipes = 0;
     A.volleys = 0;
     this.sound('stun');
+    return true;
   }
 
   /**
@@ -3156,7 +3174,7 @@ export class Sim {
     A.cdGuard = Math.max(A.cdGuard, 4);
     if (success) {
       A.exposed = 4.8;
-      this.stunAllen(2.9, true);
+      this.stunAllen(2, true, true);
       this.sound('shatter');
       this.sound('bighit');
       this.addShake(0.9);
@@ -3741,7 +3759,7 @@ export class Sim {
           this.fx.dustRing(A.x, 0.1, A.z, 14, 1.2, 0xdfd0b5, 9.5, 2.4, 0.78);
           this.floatText(A.x, 5.8, A.z, 'CRASH!', 'crit');
           this.damageAllen(18 + 5 * this.course, 0);
-          if (A.hp > 0) this.stunAllen(2.5, true);
+          if (A.hp > 0) this.stunAllen(2.5, true, true);
         } else if (A.t >= 0.8) {
           A.cdDash = 9;
           this.recover(0.9 * tele);
@@ -3841,6 +3859,8 @@ export class Sim {
         }
         if (this.pots.length === 0) this.breakShield(true);
         else if (A.shieldT <= 0) this.breakShield(false);
+        // whatever happened, the shield is gone: never stay in this state without it
+        if (!A.shielded && A.state === 'shielded') this.setA('chase');
         break;
       }
       case 'guard': {
@@ -3907,8 +3927,9 @@ export class Sim {
         if (A.t >= 2.6) {
           A.cdSpin = 15;
           A.poise = 0;
+          // dizzy from his own spin: a short window to punish him
           this.setA('stunned');
-          A.stunDur = 2.4;
+          A.stunDur = 1.4;
           this.sound('stun');
           this.floatText(A.x, 5.8, A.z, 'DIZZY!', 'crit');
         }
@@ -3920,7 +3941,7 @@ export class Sim {
       }
       case 'stunned': {
         if (A.t >= A.stunDur) {
-          A.stunImmune = STUN_IMMUNITY;
+          A.stunImmune = Math.max(A.stunImmune, STUN_IMMUNITY * 0.5);
           A.globalCd = 0.45;
           this.setA('chase');
           if (A.tiltQueued) {

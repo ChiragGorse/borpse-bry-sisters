@@ -22,6 +22,9 @@ export const CHANGELOG: ChangelogEntry[] = [
       'Earwhen can no longer be stunlocked: after a stagger he can\u2019t be staggered again for 10 seconds, and stuns barely touch him.',
       'In the backup call, Kingger runs up to Charig with a warning: "The tickling is coming… The tickling of Earwhen!!!"',
       'Bot pigs now actually fight (and dodge) Earwhen when Allen isn\u2019t around.',
+      'Allen can no longer be stunlocked by ability spam: a stun can\u2019t restart one already running, he\u2019s resistant from the moment a stun lands until 14 seconds after it, and in that window only one heavy hit (briefly) gets through. Breaking his sauce shield still always stuns him.',
+      'Smash Battles and the dizzy spell after his Sizzle Spin are shorter.',
+      'Fixed Allen freezing in place (and his shield shattering over and over) if the sauce jars were smashed while he was resisting stuns.',
     ],
   },
   {
