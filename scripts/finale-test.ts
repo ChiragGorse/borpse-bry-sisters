@@ -35,7 +35,8 @@ function run(sim: Sim, seconds: number, until?: () => boolean, tough = false) {
   for (let t = 0; t < seconds; t += DT) {
     const inputs = new Map<number, PlayerInput>();
     for (const p of sim.players) inputs.set(p.id, brain.think(sim, p, DT));
-    if (tough) for (const p of sim.players) p.hp = Math.max(p.hp, p.maxHp * 0.5);
+    // (the finale hits hard: keep the test herd standing so the scripted steps can be checked)
+    if (tough) for (const p of sim.players) p.hp = p.maxHp = 5000;
     sim.step(DT, inputs);
     if (until?.()) return true;
   }
@@ -69,7 +70,8 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   S.beginCourse();
   const W = earwhen(sim);
   if (!W) fail('no Earwhen in the final course');
-  if (sim.A.maxHp >= COURSES[COURSES.length - 1].hp) fail('Allen should come back weakened');
+  // compared with the Grand Feast's health for this herd size
+  if (sim.A.maxHp >= COURSES[COURSES.length - 1].hp * (1 + 0.6 * (pigs - 1))) fail('Allen should come back weakened');
   ok(`final course: Earwhen ${W!.maxHp} HP, Allen ${sim.A.maxHp} HP`);
   const acts = new Set<string>();
   const hp0 = sim.players.reduce((a, p) => a + p.hp, 0);
@@ -89,7 +91,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   /* 3. Allen down first: no victory until Earwhen falls */
   if (sim.A.state !== 'ko') {
     S.defeatAllen();
-    run(sim, 3);
+    run(sim, 3, undefined, true);
   }
   if (sim.A.state !== 'ko') fail(`Allen should be down, is ${sim.A.state}`);
   const w = earwhen(sim);
@@ -100,7 +102,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
     ok('Allen is down but Earwhen fights on, enraged');
     S.damageBot(w, 1e6, 0, 0, true);
   }
-  if (!run(sim, 6, () => !!sim.outcome)) fail('no victory after both went down');
+  if (!run(sim, 6, () => !!sim.outcome, true)) fail('no victory after both went down');
   if (sim.outcome !== 'victory') fail(`expected victory, got ${sim.outcome}`);
   ok('both down: victory');
 }
@@ -120,7 +122,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   run(sim, 5, undefined, true);
   if (sim.outcome) fail('won with Allen still standing');
   S.defeatAllen();
-  if (!run(sim, 8, () => !!sim.outcome) || sim.outcome !== 'victory') fail(`expected victory, got ${sim.outcome}`);
+  if (!run(sim, 8, () => !!sim.outcome, true) || sim.outcome !== 'victory') fail(`expected victory, got ${sim.outcome}`);
   ok('Earwhen down first, then Allen: victory');
 }
 console.log('PASS');

@@ -87,9 +87,17 @@ const ALLEN_DMG = 1.18;
 const KITCHEN_DMG = 0.62;
 const KITCHEN_WAVE_GAP = 1.3;
 /** Seconds after a stun when Allen resists light stuns and his stagger bar won't fill. */
-const STUN_IMMUNITY = 10;
+const STUN_IMMUNITY = 12;
 /** Heavy (forced) stuns in that window last only this share of their usual time. */
-const STUN_RECOVERING = 0.35;
+const STUN_RECOVERING = 0.25;
+/** Every stun on Allen lasts this share of its listed time. */
+const STUN_SCALE = 0.55;
+/** Allen's (and Earwhen's) damage grows by this much per extra player. */
+const DMG_PER_PLAYER = 0.4;
+/** Earwhen's damage per extra player. */
+const EARWHEN_DMG_PER_PLAYER = 0.62;
+/** Earwhen's health per extra player: a big herd brings him at full strength. */
+const EARWHEN_HP_PER_PLAYER = 0.9;
 /** Blast radius of one of Earwhen's flaming robots. */
 const ROBOT_BLAST = 2.9;
 export const MAX_PLAYERS = 8;
@@ -964,7 +972,8 @@ export class Sim {
     if (finale) {
       // a battered Allen, with backup
       A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * EARWHEN.allenHp);
-      A.phases = 1;
+      // a big herd also has to break one sauce shield first
+      A.phases = this.players.length > 1 ? 2 : 1;
       this.spawnEarwhen(5, 78, 4.5, 58);
       this.showBanner(`FINAL COURSE · ${EARWHEN.name.toUpperCase()}`, 'Allen brought backup');
       this.say('Allen', 'EARWHEN! Cream them!', 4.4);
@@ -973,6 +982,11 @@ export class Sim {
       this.say('Allen', c.intro, 4.4);
     }
     this.events.push({ t: 'lookAt', x: A.x, z: 60 });
+  }
+
+  /** Allen's and Earwhen's damage multiplier for the size of the herd: grows straight with the player count. */
+  private dmgScale() {
+    return 1 + DMG_PER_PLAYER * Math.max(0, this.players.length - 1);
   }
 
   /** Allen's health multiplier for the size of the herd: +60% per extra player. */
@@ -2836,7 +2850,7 @@ export class Sim {
       this.floatText(A.x, 5.2, A.z, 'SHRUGGED IT OFF', 'info');
     }
     this.setA('stunned');
-    A.stunDur = dur;
+    A.stunDur = dur * STUN_SCALE;
     A.poise = 0;
     A.slamChain = 0;
     A.swipes = 0;
@@ -2974,7 +2988,7 @@ export class Sim {
         this.floatText(A.x, 5.6, A.z, 'STAGGERED!', 'crit');
         this.fx.hitBurst(A.x, A.y + 3.2, A.z, 0xffe14d, 1.9);
         this.fx.shockWall(A.x, 0.1, A.z, 0xffe14d, 1.2, 6.4, 0.8, 3.2, 0.4, 8);
-        this.stunAllen(1.5, true);
+        this.stunAllen(1.8, true);
       }
     }
     return true;
@@ -3386,7 +3400,7 @@ export class Sim {
     const k = ctl ? this.allenAim(ctl) : (lure ? { x: lure.x, z: lure.z, vx: 0, vz: 0 } : this.allenTarget());
     if (!k) return;
     const cBase = COURSES[Math.min(this.course, COURSES.length - 1)];
-    const c0 = { ...cBase, dmg: cBase.dmg * ALLEN_DMG };
+    const c0 = { ...cBase, dmg: cBase.dmg * ALLEN_DMG * this.dmgScale() };
     // Tilted (after Smash Battles): faster, harder-hitting, quicker wind-ups
     const c = A.tilt > 0 ? { ...c0, dmg: c0.dmg * 1.3, speed: c0.speed * 1.25, tele: c0.tele * 0.85 } : c0;
     if (A.tilt > 0) {
@@ -4136,7 +4150,7 @@ export class Sim {
   /** Earwhen leaps over the fence from (fx, fz) and lands at (tx, tz). */
   private spawnEarwhen(fx: number, fz: number, tx: number, tz: number) {
     this.bots = this.bots.filter((b) => b.kind !== 'earwhen');
-    const hp = Math.round(EARWHEN.hp * this.hpScale());
+    const hp = Math.round(EARWHEN.hp * (1 + EARWHEN_HP_PER_PLAYER * Math.max(0, this.players.length - 1)));
     this.bots.push({
       id: this.id(),
       kind: 'earwhen',
@@ -4197,7 +4211,7 @@ export class Sim {
     }
     // enough punishment staggers him, even mid-attack
     b.poise += d * (heavy ? 1.5 : 1);
-    const poiseMax = 300 * (1 + 0.25 * Math.max(0, this.players.length - 1));
+    const poiseMax = 520 * (1 + 0.45 * Math.max(0, this.players.length - 1));
     if (b.poise >= poiseMax && b.act !== 'stagger') {
       b.poise = 0;
       b.act = 'stagger';
@@ -4295,8 +4309,8 @@ export class Sim {
       b.aim = b.heading;
       return;
     }
-    const rage = b.rage ? 0.7 : 1;
-    const dm = EARWHEN.dmg * (b.rage ? 1.2 : 1);
+    const rage = (b.rage ? 0.7 : 1) * EARWHEN.cooldown;
+    const dm = EARWHEN.dmg * (1 + EARWHEN_DMG_PER_PLAYER * Math.max(0, this.players.length - 1)) * (b.rage ? 1.25 : 1);
     b.cdSpray -= dt;
     b.cdStream -= dt;
     b.cdBlob -= dt;
@@ -4305,7 +4319,7 @@ export class Sim {
     const anyAlive = this.living().length > 0;
     if (!anyAlive || this.overReason || this.mode !== 'combat') return;
     // stuns barely slow him down
-    b.stun = Math.min(b.stun, 0.5);
+    b.stun = Math.min(b.stun, 0.25);
     if (b.stun > 0) return;
     const tgt = this.pickBotTarget(b, 0.95);
     const dx = tgt.x - b.x;
@@ -4324,7 +4338,7 @@ export class Sim {
 
     switch (b.act) {
       case 'stagger': {
-        if (b.mt >= 1.8) {
+        if (b.mt >= 1.1) {
           b.act = 'stalk';
           b.mt = 0;
           b.bite = 0.6;

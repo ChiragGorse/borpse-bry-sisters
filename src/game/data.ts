@@ -631,11 +631,13 @@ export const FINALE = COURSES.length;
 export const EARWHEN = {
   name: "Earwhen's Feast",
   /** Earwhen's health, before the herd-size scaling. */
-  hp: 2300,
-  speed: 6.4,
-  dmg: 2.2,
+  hp: 3000,
+  speed: 7.2,
+  dmg: 1.95,
   /** Allen comes back with this share of his Grand Feast health. */
-  allenHp: 0.4,
+  allenHp: 0.55,
+  /** Earwhen's attack cooldowns are multiplied by this. */
+  cooldown: 0.7,
   /** Seconds between Earwhen's snack runs. */
   hunger: 16,
   eatRate: 24,

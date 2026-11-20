@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.14',
+    date: '2026-11-20',
+    title: 'The Feast Fights Back',
+    changes: [
+      "Allen's damage now grows with the size of the herd: +40% for every extra player.",
+      'Stuns on Allen last 45% less, staggers last about a second, and after a stun he shrugs off more for longer.',
+      "Earwhen's Feast is much harder: Earwhen has more health, hits harder, moves faster, attacks more often, barely flinches, and scales up hard with every extra player.",
+      'In the finale Allen comes back with more of his health, and with two or more players he brings a sauce shield phase too.',
+    ],
+  },
+  {
     version: 'Beta 0.13',
     date: '2026-11-20',
     title: 'Folk Valley',
