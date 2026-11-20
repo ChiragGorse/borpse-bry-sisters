@@ -144,7 +144,7 @@ export default function App() {
       {hud && showTouch && <MobileControls game={getGame} hud={hud} />}
       {hud && editTouch && <MobileControls game={getGame} hud={hud} edit onDone={() => setEditTouch(false)} />}
       {hud && showHud && (
-        <Hud hud={hud} portraits={portraits} minimapRef={minimapRef} dim={screen !== 'play'} touch={touch && !hud.gamepad?.active} onInteract={interact} />
+        <Hud hud={hud} portraits={portraits} minimapRef={minimapRef} dim={screen !== 'play'} touch={touch && !hud.gamepad?.active} onInteract={interact} conn={net && net.state !== 'closed' ? net : null} />
       )}
       {hud?.opening && (
         <OpeningCutscene

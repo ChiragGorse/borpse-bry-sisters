@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { serverAddress, type NetStatus } from '../game/net/NetClient';
 import { ACTIVE_INFO, type ActiveId, type HudState } from '../game/data';
 import { padActionLabel, padLabel, type PadLayout } from '../game/gamepad';
-import { Key, Keys, Portrait } from './Hud';
+import { ConnectionBadge, Key, Keys, Portrait } from './Hud';
 import { bindLabel } from '../game/keybinds';
 import { GAME_VERSION } from '../game/changelog';
 import { changelogUnseen } from './Changelog';
@@ -109,6 +109,7 @@ function OnlinePanel({ online, onBots }: { online: OnlineProps; onBots?: (n: num
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-ink/70">Room</span>
               <span className="font-display text-2xl leading-none tracking-[0.12em]">{st.room}</span>
+              <ConnectionBadge conn={st} className="order-last ml-auto" />
               <button
                 type="button"
                 className="rounded-full border-2 border-ink bg-white px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wide"

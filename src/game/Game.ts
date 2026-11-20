@@ -163,7 +163,7 @@ const HAZ_RING_MAT = fxMat(0xff5a1f, 0.9);
 const HAZ_FILL_MAT = fxMat(0xff5a1f, 0.34);
 
 /* ───────── one view object per simulated entity ───────── */
-interface PlayerView { m: KenjiModel; walk: number }
+interface PlayerView { m: KenjiModel; walk: number; tag: HTMLDivElement }
 interface BotView { m: EnemyModel | GuppyModel | EarwhenModel; ring: THREE.Group | null; ringFill: THREE.Mesh | null }
 interface ProjView { mesh: THREE.Group; friendly: boolean }
 interface MatMesh { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
@@ -190,6 +190,8 @@ export class Game {
   private sfx = new Sfx();
   private music = new Music();
   private fx: HTMLDivElement;
+  /** Name tags over other players' pigs (own layer: map changes clear the fx layer). */
+  private tags: HTMLDivElement;
   private arrow: HTMLDivElement;
   private minimap: HTMLCanvasElement | null = null;
   private raf = 0;
@@ -339,6 +341,9 @@ export class Game {
     this.arrow.className = 'allen-arrow';
     this.arrow.style.display = 'none';
     this.fx.appendChild(this.arrow);
+    this.tags = document.createElement('div');
+    this.tags.className = 'fx-layer nametag-layer';
+    container.appendChild(this.tags);
 
     // portraits first (uses the renderer before the real scene exists)
     this.portraits = this.makePortraits();
@@ -632,7 +637,10 @@ export class Game {
 
   /** Removes every entity model so the next sync rebuilds them from the current simulation. */
   private clearViews() {
-    for (const v of this.players.values()) this.discard(v.m.root);
+    for (const v of this.players.values()) {
+      this.discard(v.m.root);
+      v.tag.remove();
+    }
     this.players.clear();
     for (const v of this.botViews.values()) {
       if (v.ring) this.scene.remove(v.ring);
@@ -767,6 +775,7 @@ export class Game {
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.fx.remove();
+    this.tags.remove();
   }
 
   private resize = () => {
@@ -1556,6 +1565,7 @@ export class Game {
     if (this.screen === 'play') this.updatePlay(dt);
     else if (this.online && (this.screen === 'shop' || this.screen === 'paused')) this.updateOnlineBackground(dt);
     else this.updateIdle(dt);
+    this.updateNametags();
     this.updateSky(dt);
     this.updateForestMood(dt);
     this.updateMusic();
@@ -2891,11 +2901,52 @@ export class Game {
           c.receiveShadow = c.castShadow;
         });
         this.scene.add(m.root);
-        return { m, walk: 0 };
+        const tag = document.createElement('div');
+        tag.className = 'nametag';
+        tag.style.display = 'none';
+        this.tags.appendChild(tag);
+        return { m, walk: 0, tag };
       },
       (v, p) => this.animatePlayer(p, v, dt),
-      (v) => this.discard(v.m.root),
+      (v) => {
+        this.discard(v.m.root);
+        v.tag.remove();
+      },
     );
+  }
+
+  /** Floats each other pig's name over its head, in its colour. Your own pig has no tag. */
+  private updateNametags() {
+    const show = this.screen === 'play' && this.sim.players.length > 1;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    for (const p of this.sim.players) {
+      const v = this.players.get(p.id);
+      if (!v) continue;
+      const tag = v.tag;
+      if (!show || p.id === this.localId || !p.name || !v.m.root.visible) {
+        tag.style.display = 'none';
+        continue;
+      }
+      const s = this.tmp.set(v.m.root.position.x, v.m.root.position.y + 1.85, v.m.root.position.z).project(this.camera);
+      if (s.z > 1 || Math.abs(s.x) > 1.1 || Math.abs(s.y) > 1.1) {
+        tag.style.display = 'none';
+        continue;
+      }
+      if (tag.textContent !== p.name) tag.textContent = p.name;
+      const color = '#' + p.tint.toString(16).padStart(6, '0');
+      if (tag.dataset.color !== color) {
+        tag.dataset.color = color;
+        tag.style.setProperty('--tag', color);
+      }
+      tag.classList.toggle('down', p.action === 'dead');
+      // far pigs get smaller, faded tags so a crowd doesn't turn into a wall of names
+      const dist = this.camera.position.distanceTo(v.m.root.position);
+      const k = Math.max(0.6, Math.min(1, 18 / Math.max(1, dist)));
+      tag.style.display = 'block';
+      tag.style.opacity = (0.45 + 0.55 * k).toFixed(2);
+      tag.style.transform = `translate(${((s.x * 0.5 + 0.5) * w).toFixed(1)}px, ${((-s.y * 0.5 + 0.5) * h).toFixed(1)}px) translate(-50%, -100%) scale(${k.toFixed(2)})`;
+    }
   }
 
   private syncBots(camQ: THREE.Quaternion) {

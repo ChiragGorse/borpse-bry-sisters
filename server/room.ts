@@ -10,6 +10,7 @@ import { encodeHot, encodeMeta, encodeStats } from '../src/game/net/encode';
 import { MAX_NAME, PROTOCOL_VERSION, TICK_HZ, unpack, type ClientMsg, type LobbyPlayer, type Relayed, type ServerMsg } from '../src/game/net/protocol';
 import { headlessMaps } from './maps';
 import type { WsConnection } from './ws';
+import { SERVER_LOCATION } from './location';
 
 const DT = 1 / TICK_HZ;
 /** Most messages one client may send per second before it's cut off (poses arrive at up to ~60/s). */
@@ -95,7 +96,7 @@ export class Room {
     if (!this.hostPid) this.hostPid = p.id;
     conn.onMessage = (text) => this.onMessage(m, text);
     conn.onClose = () => this.leave(m);
-    this.sendTo(conn, { t: 'welcome', v: PROTOCOL_VERSION, pid: p.id, room: this.code });
+    this.sendTo(conn, { t: 'welcome', v: PROTOCOL_VERSION, pid: p.id, room: this.code, loc: SERVER_LOCATION || undefined });
     this.lastMeta = ''; // the newcomer needs the full picture on the next tick
     this.broadcastLobby();
     this.broadcastState([]);
@@ -180,6 +181,9 @@ export class Room {
         }
         break;
       }
+      case 'ping':
+        this.sendTo(m.conn, { t: 'pong', c: Number(msg.c) || 0 });
+        break;
       case 'ain': {
         if (m.pid !== this.allenPid) break;
         const mx = Number(msg.mx) || 0;

@@ -119,7 +119,10 @@ export interface Hot {
 }
 
 export type ServerMsg =
-  | { t: 'welcome'; v: number; pid: number; room: string }
+  /** `loc`: where the server says it is ("Frankfurt", "Los Angeles"…), when it knows. */
+  | { t: 'welcome'; v: number; pid: number; room: string; loc?: string }
+  /** Answer to a client `ping`, echoing its timestamp. */
+  | { t: 'pong'; c: number }
   /** `allen` is the id of the person playing Allen (0 = the AI), `allenName` their name. */
   | { t: 'lobby'; room: string; host: number; playing: boolean; bots: number; players: LobbyPlayer[]; allen: number; allenName: string }
   /** One simulation tick: server tick time, hot state, meta when changed, stats about once a second, events. */
@@ -138,6 +141,8 @@ export type WireStrike = [string, number, Wire[]];
 export type ClientMsg =
   /** Your pig: epoch it's based on, its pose (POSE_KEYS order), buttons pressed, moves made, effects shown. */
   | { t: 'pose'; ep: number; p: Wire[]; b: number; k: WireStrike[]; ev: SimEvent[] }
+  /** Round-trip probe for the ping readout; the server echoes `c` straight back. Older servers ignore it. */
+  | { t: 'ping'; c: number }
   | { t: 'start' }
   | { t: 'retry' }
   | { t: 'restart' }

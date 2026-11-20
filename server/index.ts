@@ -14,6 +14,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { acceptWebSocket } from './ws';
 import { Room } from './room';
 import { PROTOCOL_VERSION, ROOM_ALPHABET, normalizeRoom } from '../src/game/net/protocol';
+import { SERVER_LOCATION } from './location';
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -121,7 +122,9 @@ server.on('upgrade', (req, socket) => {
   }
 });
 
-server.listen(PORT, HOST, () => log(`Borpse Bry Sisters server on http://${HOST}:${PORT}  (game files: ${STATIC_DIR})`));
+server.listen(PORT, HOST, () =>
+  log(`Borpse Bry Sisters server on http://${HOST}:${PORT}  (game files: ${STATIC_DIR})  location: ${SERVER_LOCATION || 'unknown (set SERVER_LOCATION)'}`),
+);
 
 const shutdown = () => {
   for (const r of rooms.values()) r.stop();
