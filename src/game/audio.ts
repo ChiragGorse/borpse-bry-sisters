@@ -29,7 +29,12 @@ export type SfxName =
   | 'win'
   | 'lose'
   /** Path Guppy's jump scare. */
-  | 'scream';
+  | 'scream'
+  /** Folk Valley anomalies. */
+  | 'whisper'
+  | 'footsteps'
+  | 'static'
+  | 'drone';
 
 /** Tiny WebAudio synth so the game has sound without shipping any audio files. */
 export class Sfx {
@@ -212,6 +217,25 @@ export class Sfx {
         break;
       case 'scream':
         this.scream();
+        break;
+      case 'whisper':
+        // breathy, wordless murmuring: short bursts of filtered hiss
+        for (let i = 0; i < 9; i++) this.noise(0.12 + Math.random() * 0.12, 0.07 + Math.random() * 0.05, 1800 + Math.random() * 2200, 'bandpass', i * 0.13 + Math.random() * 0.05);
+        break;
+      case 'footsteps':
+        // something heavy walking behind you, then stopping
+        for (let i = 0; i < 4; i++) {
+          this.tone(95, 45, 0.16, 'sine', 0.35, i * 0.42);
+          this.noise(0.1, 0.18, 320, 'lowpass', i * 0.42);
+        }
+        break;
+      case 'static':
+        this.noise(0.28, 0.32, 5200, 'highpass');
+        this.tone(60, 60, 0.28, 'square', 0.06);
+        break;
+      case 'drone':
+        this.tone(55, 49, 3, 'sawtooth', 0.07);
+        this.tone(58, 52, 3, 'triangle', 0.09);
         break;
       case 'roar':
         this.tone(110, 62, 0.6, 'sawtooth', 0.3);

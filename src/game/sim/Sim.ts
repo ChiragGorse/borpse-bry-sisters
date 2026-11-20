@@ -5318,7 +5318,7 @@ export class Sim {
           k.prompt = "E|Herb's resting (back after the next course)";
           if (e) this.say('Herb', '*snore*… five more minutes… the truffles will keep…', 3);
         } else {
-          k.prompt = 'E|Hog Hunt: hunt truffles in Slopwood Forest with Herb';
+          k.prompt = 'E|Hog Hunt: hunt truffles in Folk Valley with Herb';
           if (e) this.startHunt();
         }
       } else if (near(SPOT.bell, 5)) {
@@ -5338,7 +5338,7 @@ export class Sim {
         this.say('Trout', this.pick(['Class is OUT — use your combos on him, kid!', 'Roll in, uppercut, belly flop! Remember your kata!']), 2.8);
       }
     } else if (near(SPOT.hunt, 7)) {
-      k.prompt = 'E|Forest trail closed - drive Allen off first';
+      k.prompt = 'E|The trail to Folk Valley is closed - drive Allen off first';
       if (e) this.say('Rickley', 'Not now, Kenji! The farm needs you here.', 3);
     }
   }
@@ -5412,7 +5412,7 @@ export class Sim {
     this.scareT = this.rand(22, 34);
     this.forestHint = 'Follow Herb and his lantern. When he starts rooting around, dig (E).';
     this.sound('oink');
-    this.showBanner('HOG HUNT', 'Slopwood Forest, after dark · follow Herb to the truffles');
+    this.showBanner('HOG HUNT', 'Folk Valley, after dark · follow Herb to the truffles');
     this.say('Herb', "Stay close to my lantern, Kenji. These woods get… weird at night. I can smell truffles this way.", 5);
     this.dirty = true;
   }

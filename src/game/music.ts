@@ -28,6 +28,8 @@ export class Music {
   private farmIdx = 0;
   private unlocked = false;
   private lastT = 0;
+  /** Seconds left of an eerie silence (the music drops out). */
+  private duckT = 0;
   muted = false;
   mood: MusicMood = 'farm';
 
@@ -74,7 +76,13 @@ export class Music {
   }
 
   private apply(t: Track) {
-    t.el.volume = Math.max(0, Math.min(1, this.muted ? 0 : t.level * t.level * VOLUME));
+    const duck = this.duckT > 0 ? 0 : 1;
+    t.el.volume = Math.max(0, Math.min(1, this.muted ? 0 : t.level * t.level * VOLUME * duck));
+  }
+
+  /** Cut the music for a few seconds (it comes back on its own). */
+  duck(seconds: number) {
+    this.duckT = Math.max(this.duckT, seconds);
   }
 
   /** Fades towards the music for `mood`. Call every frame. (Fades run on the wall clock, not the game's capped frame time.) */
@@ -83,6 +91,7 @@ export class Music {
     const now = performance.now();
     const dt = this.lastT ? Math.min(0.5, (now - this.lastT) / 1000) : 0;
     this.lastT = now;
+    this.duckT = Math.max(0, this.duckT - dt);
     if (mood !== this.mood) {
       // coming back to the farm after a fight: start the next farm song fresh
       if (mood === 'farm' && this.mood !== 'farm') {

@@ -934,7 +934,7 @@ export function buildWorld(): World {
       part(entrance, cone(0.47, 0.35, 4), M(0x394c36), s * 4, 5.16, 0.65);
     }
     part(entrance, box(9.2, 1.85, 0.4), M(0x344d36), 0, 5.8, 0);
-    const tex = signTexture('SLOPWOOD FOREST', 5.4, '#fbf3df', '#344d36', 'HOG HUNT - E TO TRAVEL');
+    const tex = signTexture('FOLK VALLEY', 5.4, '#fbf3df', '#344d36', 'HOG HUNT - E TO TRAVEL');
     const sm = new THREE.Mesh(new THREE.PlaneGeometry(8.9, 1.65), new THREE.MeshStandardMaterial({ roughness: 0.85, map: tex }));
     sm.position.set(0, 5.8, 0.22);
     entrance.add(sm);

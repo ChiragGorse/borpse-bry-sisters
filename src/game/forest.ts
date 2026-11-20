@@ -29,7 +29,7 @@ function seeded(seed: number) {
 
 export function buildForest(): ForestWorld {
   const group = new THREE.Group();
-  group.name = 'Slopwood Forest';
+  group.name = 'Folk Valley';
   const colliders: Collider[] = [];
   const features: MapFeature[] = [];
   const random = seeded(83471);
@@ -200,7 +200,7 @@ export function buildForest(): ForestWorld {
     face.position.set(0, 2.65, 0.1);
     root.add(face);
   };
-  sign(-4.5, 49, 'SLOPWOOD FOREST', 'FOLLOW THE HOOFPRINTS', 0.1, 6.3);
+  sign(-4.5, 49, 'FOLK VALLEY', 'STAY NEAR THE LANTERN', 0.1, 6.3);
   sign(3.7, 65, 'BACK TO THE FARM', 'E - BRING YOUR RECRUITS', PI, 5.3);
   sign(-3, 17, 'OLD CAMP  <', 'ACORN GROVE  >');
   sign(10, -30, 'DEEPWOOD', 'KEEP GOING, COMRADE');

@@ -56,7 +56,7 @@ import { SCARE_FACE_SVG } from '../ui/scareFace';
 import { bindLabel, translate, type BindAction } from './keybinds';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
-import { COIL, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
+import { COIL, FOREST_BOUND, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
 import { GamepadInput, PAD_ACTIONS, PadMenuRepeat, padActionLabel, padDown, type PadFrame, type PadLayout, type PadMenuCommand } from './gamepad';
 import { MAX_SQUAD, Sim, newPlayer, zapCooldown } from './sim/Sim';
 import type { GameSim } from './sim/gameSim';
@@ -142,7 +142,7 @@ const TODS: Tod[] = [
   { sun: 0xffb8a8, sunI: 2.2, hemiSky: 0xd89aa8, hemiGround: 0x5c3e48, hemiI: 0.82, fog: 0x26121e, fogD: 0.0036, elev: 0.68, stars: 0.95, win: 4.8, turb: 2.4, ray: 1.1, mie: 0.008, mieG: 0.86, gain: 0.028, tint: 0xff8c8c, expo: 1.04 },
   { sun: 0xffb36b, sunI: 5.0, hemiSky: 0xffc8d8, hemiGround: 0x8f6b58, hemiI: 0.62, fog: 0xd88c7e, fogD: 0.0028, elev: 0.16, stars: 0.22, win: 2.6, turb: 6.4, ray: 3.3, mie: 0.014, mieG: 0.9, gain: 1, tint: 0xffe4dc, expo: 0.82 },
 ];
-/** Slopwood after dark: a cold moon, thick black fog, and only lanterns to see by. */
+/** Folk Valley after dark: a cold moon, thick black fog, and only lanterns to see by. */
 const FOREST_TOD: Tod = { sun: 0x8fa3d6, sunI: 0.45, hemiSky: 0x24304a, hemiGround: 0x0c120c, hemiI: 0.22, fog: 0x04060a, fogD: 0.034, elev: 0.75, stars: 0.6, win: 0, turb: 1.4, ray: 0.7, mie: 0.003, mieG: 0.8, gain: 0.02, tint: 0x5a6890, expo: 1.0 };
 const LIT_KEYS = ['sunI', 'hemiI', 'fogD', 'elev', 'win', 'turb', 'ray', 'mie', 'mieG', 'gain', 'expo'] as const;
 type Lit = Record<(typeof LIT_KEYS)[number], number>;
@@ -154,6 +154,8 @@ function fxMat(color: number, opacity: number): THREE.MeshBasicMaterial {
   return m;
 }
 const SUN_AZ = -0.9;
+type AnomalyKind = 'watcher' | 'mimic' | 'blackout' | 'wisps' | 'whispers' | 'glitch' | 'silence';
+const ANOMALIES: AnomalyKind[] = ['watcher', 'mimic', 'blackout', 'wisps', 'whispers', 'glitch', 'silence'];
 const WILD_TINTS = [0x9c7b63, 0x92705b, 0xb08e6b];
 
 const RING_GEO = new THREE.RingGeometry(0.88, 1, 56).rotateX(-PI / 2);
@@ -272,6 +274,18 @@ export class Game {
   private pigLight = new THREE.PointLight(0xc8d4ff, 0, 11, 1.6);
   /** Pairs of eyes blinking in the dark, out past the lantern light. */
   private eyes: { g: THREE.Group; t: number; life: number }[] = [];
+  /**
+   * Folk Valley's anomalies: odd things this browser alone sees during a Hog Hunt (each player gets
+   * their own, so nobody can quite agree on what happened).
+   */
+  private anomaly: { kind: AnomalyKind; t: number; dur: number; x: number; z: number; flag: boolean } | null = null;
+  private anomalyT = 14;
+  private lastAnomaly: AnomalyKind | null = null;
+  private anomalyProps: { watcher: THREE.Group; mimic: KenjiModel; wisps: THREE.Mesh[] } | null = null;
+  /** Lantern brightness multiplier (a blackout drops it to nothing). */
+  private lightMul = 1;
+  /** A line only this player hears ("…that wasn't me"), shown when the shared subtitle is free. */
+  private localSubtitle: { who: string; text: string; t: number } | null = null;
   /** Cutscene-only Path Guppy (an AL kid in the war) and the "back in the lab" memory props. */
   private cutGuppy!: GuppyModel;
   /** Allen in the flashbacks, before he ate everything: kid-sized, not round. */
@@ -1759,10 +1773,11 @@ export class Game {
     const forest = sim.area === 'forest' && (this.screen === 'play' || this.screen === 'paused' || this.screen === 'shop');
     const herb = forest ? sim.wild.find((w) => w.name === 'Herb') : undefined;
     const flicker = 1 + Math.sin(this.time * 13) * 0.06 + Math.sin(this.time * 31) * 0.04;
-    this.herbLight.intensity = lerp(this.herbLight.intensity, herb ? 60 * flicker : 0, 1 - Math.exp(-4 * dt));
+    this.updateAnomalies(dt, forest);
+    this.herbLight.intensity = lerp(this.herbLight.intensity, herb ? 60 * flicker * this.lightMul : 0, 1 - Math.exp(-(this.lightMul < 1 ? 30 : 4) * dt));
     if (herb) this.herbLight.position.set(herb.x + Math.sin(herb.heading) * 0.9, 1.6, herb.z + Math.cos(herb.heading) * 0.9);
     const k = this.focus();
-    this.pigLight.intensity = lerp(this.pigLight.intensity, forest ? 9 : 0, 1 - Math.exp(-4 * dt));
+    this.pigLight.intensity = lerp(this.pigLight.intensity, forest ? 9 * this.lightMul : 0, 1 - Math.exp(-(this.lightMul < 1 ? 30 : 4) * dt));
     this.pigLight.position.set(k.x, 2.6, k.z);
     // gold glints where Herb is digging
     if (forest && herb?.spotted && sim.hunt && Math.random() < dt * 14)
@@ -1792,6 +1807,256 @@ export class Game {
       // blink now and then
       e.g.visible = Math.sin(e.t * 2.3) > -0.85;
     }
+  }
+
+  /** The things that lurk in Folk Valley, built the first time they're needed. */
+  private makeAnomalyProps() {
+    if (this.anomalyProps) return this.anomalyProps;
+    // the Watcher: very tall, very thin, arms hanging past its knees
+    const watcher = new THREE.Group();
+    // pale and grey, so it shows as a faint shape in the fog
+    const dark = new THREE.MeshStandardMaterial({ color: 0xa9aba2, emissive: 0x2a2c2a, roughness: 1 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, 3.6, 8), dark);
+    body.position.y = 2.6;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 10, 8), dark);
+    head.position.y = 4.65;
+    head.scale.set(0.85, 1.25, 0.85);
+    watcher.add(body, head);
+    for (const sx of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.04, 3.3, 6), dark);
+      arm.position.set(sx * 0.36, 2.6, 0);
+      arm.rotation.z = sx * 0.07;
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 1.2, 6), dark);
+      leg.position.set(sx * 0.12, 0.6, 0);
+      // black, glinting eyes that the fog can't hide
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), new THREE.MeshBasicMaterial({ color: 0x000000, fog: false }));
+      const glint = new THREE.Mesh(new THREE.SphereGeometry(0.025, 5, 4), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
+      glint.position.set(sx * 0.11 + 0.02, 4.75, 0.33);
+      watcher.add(glint);
+      eye.position.set(sx * 0.11, 4.72, 0.28);
+      watcher.add(arm, leg, eye);
+    }
+    watcher.visible = false;
+    // the Mimic: looks just like Herb, minus the lantern, and stands far too still
+    const mimic = makeKenji(0xc89a74, true);
+    mimic.root.scale.setScalar(0.95);
+    // faintly lit from nowhere, so you can just make it out
+    mimic.skin.emissive.setHex(0x3a2a1e);
+    mimic.root.visible = false;
+    // will-o'-wisps
+    const wisps: THREE.Mesh[] = [];
+    for (let i = 0; i < 4; i++) {
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7dfcd8).multiplyScalar(2.2), fog: false }));
+      w.visible = false;
+      wisps.push(w);
+      this.scene.add(w);
+    }
+    this.scene.add(watcher, mimic.root);
+    this.anomalyProps = { watcher, mimic, wisps };
+    return this.anomalyProps;
+  }
+
+  private hideAnomalies() {
+    const p = this.anomalyProps;
+    if (p) {
+      p.watcher.visible = false;
+      p.mimic.root.visible = false;
+      for (const w of p.wisps) w.visible = false;
+    }
+    this.renderer.domElement.style.filter = '';
+    this.lightMul = 1;
+  }
+
+  /** Somewhere `dist` metres out, roughly where the camera is looking. */
+  private aheadSpot(dist: number, spread: number) {
+    const k = this.focus();
+    const look = this.camera.getWorldDirection(this.tmp);
+    const a = Math.atan2(look.x, look.z) + (Math.random() - 0.5) * spread;
+    // (deliberately not tidied out of the trees: half-hidden among the trunks is worse)
+    const lim = FOREST_BOUND - 4;
+    return { x: clamp(k.x + Math.sin(a) * dist, -lim, lim), z: clamp(k.z + Math.cos(a) * dist, -lim, lim), a };
+  }
+
+  private anomalySay(who: string, text: string, t = 3) {
+    this.localSubtitle = { who, text, t };
+  }
+
+  /** Every 12-25 s in Folk Valley, something happens that maybe didn't. */
+  private updateAnomalies(dt: number, forest: boolean) {
+    if (this.localSubtitle) {
+      this.localSubtitle.t -= dt;
+      if (this.localSubtitle.t <= 0) this.localSubtitle = null;
+    }
+    const sim = this.sim;
+    const playing = forest && this.screen === 'play' && !!sim.hunt && !this.asAllen;
+    if (!playing) {
+      if (this.anomaly) {
+        this.anomaly = null;
+        this.hideAnomalies();
+      }
+      if (!forest) this.anomalyT = 14;
+      return;
+    }
+    const k = this.focus();
+    const a = this.anomaly;
+    if (!a) {
+      // not while Path Guppy is busy scaring someone
+      if (sim.bots.some((b) => b.kind === 'guppy')) return;
+      this.anomalyT -= dt;
+      if (this.anomalyT > 0) return;
+      this.anomalyT = 12 + Math.random() * 13;
+      const kinds = ANOMALIES.filter((x) => x !== this.lastAnomaly);
+      this.startAnomaly(kinds[Math.floor(Math.random() * kinds.length)]);
+      return;
+    }
+    a.t += dt;
+    const P = this.makeAnomalyProps();
+    const dK = Math.hypot(a.x - k.x, a.z - k.z);
+    let done = a.t >= a.dur;
+    switch (a.kind) {
+      case 'watcher': {
+        // it just stands there, facing you; get close (or wait) and it's simply gone
+        P.watcher.lookAt(k.x, 0, k.z);
+        P.watcher.rotation.x = 0;
+        P.watcher.rotation.z = 0;
+        if (dK < 10) done = true;
+        break;
+      }
+      case 'mimic': {
+        const m = P.mimic;
+        if (!a.flag && dK < 8.5) {
+          // it notices you: the head turns all the way round
+          a.flag = true;
+          a.t = Math.min(a.t, a.dur - 0.7);
+          this.sfx.play('whisper');
+        }
+        if (a.flag) m.head.rotation.y = lerp(m.head.rotation.y, PI, 1 - Math.exp(-6 * dt));
+        if (done && a.flag) {
+          this.parts.dust(a.x, 0.8, a.z, 12, 0x15181c, { spread: 0.8, speed: 2.5, rise: 2, size0: 0.8, size1: 2.4, life: 0.9 });
+          this.anomalySay('Herb', '…That wasn’t me. Don’t follow the one without a lantern.', 3.6);
+        }
+        break;
+      }
+      case 'blackout': {
+        // the lanterns gutter out, something walks past, and the eyes come in close
+        const on = a.t > a.dur - 0.5 ? (a.t - (a.dur - 0.5)) / 0.5 : 0;
+        this.lightMul = a.t < 0.4 ? (Math.sin(a.t * 70) > 0 ? 0.6 : 0.05) : on * (Math.sin(a.t * 60) > -0.3 ? 1 : 0.2);
+        if (!a.flag && a.t > 0.6) {
+          a.flag = true;
+          this.sfx.play('footsteps');
+          for (const e of this.eyes.slice(0, 3)) {
+            const ang = Math.random() * TAU;
+            e.g.position.set(k.x + Math.sin(ang) * 7, 0.9 + Math.random(), k.z + Math.cos(ang) * 7);
+            e.g.lookAt(k.x, 1, k.z);
+            e.life = a.dur - a.t;
+            e.t = 0;
+          }
+        }
+        if (done) this.anomalySay('Herb', this.pick(['Who turned off my lantern?!', 'Something just walked right past us.', 'I didn’t see anything. You didn’t either.']), 3);
+        break;
+      }
+      case 'wisps': {
+        // little lights drifting off into the trees, beckoning
+        P.wisps.forEach((w, i) => {
+          const f = a.t / a.dur;
+          w.visible = Math.sin(a.t * 3 + i * 1.7) > -0.7;
+          w.position.set(a.x + Math.sin(i * 2.1 + a.t * 0.4) * 3, 1.2 + Math.sin(a.t * 2 + i) * 0.4 + i * 0.15, a.z + Math.cos(i * 1.3 + a.t * 0.35) * 3);
+          w.scale.setScalar(1 - f * 0.6);
+        });
+        // they keep their distance
+        if (dK < 9) {
+          const away = Math.atan2(a.x - k.x, a.z - k.z);
+          a.x += Math.sin(away) * 6 * dt;
+          a.z += Math.cos(away) * 6 * dt;
+        }
+        break;
+      }
+      case 'whispers':
+      case 'silence':
+      case 'glitch': {
+        if (a.kind === 'glitch') {
+          // the picture tears for a moment
+          const on = (a.t < 0.12 || (a.t > 0.35 && a.t < 0.45)) && !this.reduceMotion;
+          this.renderer.domElement.style.filter = on ? 'invert(1) hue-rotate(140deg) contrast(1.6) saturate(2)' : '';
+          if (!a.flag && a.t > 0.35) {
+            a.flag = true;
+            this.sfx.play('static');
+          }
+        }
+        if (a.kind === 'silence' && !a.flag && a.t > 3.5) {
+          a.flag = true;
+          this.sfx.play('footsteps');
+        }
+        break;
+      }
+    }
+    if (done) {
+      this.anomaly = null;
+      this.hideAnomalies();
+    }
+  }
+
+  private startAnomaly(kind: AnomalyKind) {
+    const P = this.makeAnomalyProps();
+    this.lastAnomaly = kind;
+    const k = this.focus();
+    let x = k.x;
+    let z = k.z;
+    let dur = 3;
+    switch (kind) {
+      case 'watcher': {
+        const s = this.aheadSpot(17, 0.6);
+        x = s.x;
+        z = s.z;
+        dur = 9;
+        P.watcher.position.set(x, 0, z);
+        P.watcher.visible = true;
+        this.sfx.play('drone');
+        break;
+      }
+      case 'mimic': {
+        const s = this.aheadSpot(13, 0.7);
+        x = s.x;
+        z = s.z;
+        dur = 14;
+        const m = P.mimic;
+        m.root.position.set(x, 0, z);
+        // facing away from you
+        m.root.rotation.set(0, Math.atan2(x - k.x, z - k.z), 0);
+        m.head.rotation.set(0, 0, 0);
+        m.root.visible = true;
+        break;
+      }
+      case 'blackout':
+        dur = 3.2;
+        this.music.duck(3.2);
+        break;
+      case 'wisps': {
+        const s = this.aheadSpot(12, 0.5);
+        x = s.x;
+        z = s.z;
+        dur = 9;
+        this.anomalySay('Herb', 'Don’t follow the lights. Never follow the lights.', 3.4);
+        break;
+      }
+      case 'whispers':
+        dur = 2.5;
+        this.sfx.play('whisper');
+        this.floatText(k.x + (Math.random() - 0.5) * 3, 2.2, k.z + (Math.random() - 0.5) * 3, this.pick(['turn around', 'it sees you', 'stay', 'not Herb']), 'info');
+        break;
+      case 'glitch':
+        dur = 0.8;
+        break;
+      case 'silence':
+        dur = 6;
+        this.music.duck(6);
+        break;
+    }
+    this.anomaly = { kind, t: 0, dur, x, z, flag: false };
+  }
+
+  private pick<T>(list: T[]): T {
+    return list[Math.floor(Math.random() * list.length)];
   }
 
   private updateSky(dt: number) {
@@ -3701,7 +3966,7 @@ export class Game {
         : null,
       cinematic: A.active && A.state === 'calling',
       prompt: this.asAllen ? sim.allenPrompt : k.prompt,
-      subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : null,
+      subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : this.localSubtitle ? { who: this.localSubtitle.who, text: this.localSubtitle.text } : null,
       opening: sim.opening ? { step: sim.opening.step, total: OPENING_BEATS } : null,
       banner: sim.banner ? { title: sim.banner.title, sub: sim.banner.sub, key: sim.banner.key } : null,
       objective,
@@ -3953,7 +4218,7 @@ export class Game {
     ctx.fillStyle = '#2a1a12';
     ctx.font = `${S / 27}px monospace`;
     ctx.textAlign = 'right';
-    ctx.fillText('FOREST', X(SPOT.hunt.x - 4), Z(SPOT.hunt.z - 4));
+    ctx.fillText('VALLEY', X(SPOT.hunt.x - 4), Z(SPOT.hunt.z - 4));
     for (const a of sim.allies) if (a.hp > 0) dot(a.x, a.z, 2.8, '#ffb3c7', '#2a1a12');
     // the rest of the herd, then this browser's pig on top
     for (const p of sim.players) {

@@ -421,10 +421,10 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
         </div>
 
         {/* Farm */}
-        <section aria-label={inForest ? 'Forest map' : 'Farm status'} className="sticker col-start-2 row-start-1 w-full p-2 sm:col-start-3 sm:w-[196px] sm:p-2.5">
+        <section aria-label={inForest ? 'Folk Valley map' : 'Farm status'} className="sticker col-start-2 row-start-1 w-full p-2 sm:col-start-3 sm:w-[196px] sm:p-2.5">
           {inForest ? (
             <>
-              <h2 className="font-display text-[13px] leading-tight text-[#34563b]">SLOPWOOD FOREST</h2>
+              <h2 className="font-display text-[13px] leading-tight text-[#34563b]">FOLK VALLEY</h2>
               <p className="mt-1 font-mono text-[9px] uppercase tracking-wide text-ink/65">Farm safe / something's watching</p>
             </>
           ) : (
@@ -449,7 +449,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
           </div>
           </>
           )}
-          <canvas ref={minimapRef} width={360} height={360} className="mt-2 hidden aspect-square w-full rounded-lg border-[2.5px] border-ink md:block" aria-label={inForest ? 'Slopwood Forest minimap' : 'Farm minimap'} />
+          <canvas ref={minimapRef} width={360} height={360} className="mt-2 hidden aspect-square w-full rounded-lg border-[2.5px] border-ink md:block" aria-label={inForest ? 'Folk Valley minimap' : 'Farm minimap'} />
           {inForest ? (
             <ul className="mt-2 hidden flex-wrap gap-x-2.5 gap-y-1 text-[9.5px] font-bold uppercase tracking-wide text-ink/70 md:flex">
               <li className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#ffb04a]" />Herb</li>
@@ -479,7 +479,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             </li>
             <li className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-full border border-mustard bg-[#344d36]" />
-              Forest
+              Folk Valley
             </li>
           </ul>
           )}
@@ -534,7 +534,7 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
       )}
 
       {inForest && !touch && (
-        <aside aria-label="Forest controls" className="sticker absolute bottom-4 left-4 hidden w-[235px] p-3 lg:block">
+        <aside aria-label="Hog Hunt controls" className="sticker absolute bottom-4 left-4 hidden w-[235px] p-3 lg:block">
           <h2 className="font-display text-sm text-[#34563b]">HOG HUNT</h2>
           <p className="mt-1.5 text-xs font-bold leading-relaxed text-ink/75">Follow Herb's lantern to each truffle cache and dig it up. Stay close: something lurks in these woods.</p>
           <p className="mt-2 text-xs font-bold"><Key>{listenKey}</Key> Ask Herb which way to the next cache</p>

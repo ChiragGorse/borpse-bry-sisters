@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.13',
+    date: '2026-11-20',
+    title: 'Folk Valley',
+    changes: [
+      'Slopwood Forest is now called Folk Valley.',
+      'Folk Valley has anomalies. Every so often something happens that only you see: a pale, impossibly tall figure watching from the trees (it is gone when you get close); a pig that looks just like Herb but has no lantern, and turns its head all the way round when you approach; the lanterns guttering out while footsteps pass by; little lights that drift away and want you to follow; whispers; the picture tearing; the music suddenly stopping.',
+    ],
+  },
+  {
     version: 'Beta 0.12',
     date: '2026-11-20',
     title: 'Flaming Robots',

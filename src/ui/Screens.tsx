@@ -338,7 +338,7 @@ export function TitleScreen({
             </button>
           )}
           <div className="text-sm font-bold text-paper/80">
-            <p>8 brutal courses · a finale boss · truffle hunts in a haunted forest</p>
+            <p>8 brutal courses · a finale boss · truffle hunts in haunted Folk Valley</p>
             {pad ? (
               <p className="mt-1 flex items-center gap-2 text-[#ffe6a0]" role="status"><Key>{padLabel(pad, 'south')}</Key> Start with controller</p>
             ) : touch ? (
@@ -579,7 +579,7 @@ export function PauseScreen({
         {disconnected ? (
           <p className="mt-2 text-sm font-bold text-barn" role="status">Controller disconnected. Reconnect and press a button, or resume with the keyboard.</p>
         ) : (
-          <p className="mt-1.5 text-sm font-bold text-ink/65">{onReturnFarm ? 'The forest can wait. Your truffles are safe.' : 'Allen is politely holding his fork mid-air.'}</p>
+          <p className="mt-1.5 text-sm font-bold text-ink/65">{onReturnFarm ? 'Folk Valley can wait. Your truffles are safe.' : 'Allen is politely holding his fork mid-air.'}</p>
         )}
         <div className="mt-4 grid gap-2">
           <button type="button" onClick={onResume} autoFocus data-pad-default className="btn bg-mustard px-5 py-3 font-display text-xl leading-none">
@@ -690,7 +690,7 @@ export function GameOverScreen({ hud, portraits, onRetry, actions }: { hud: HudS
           {!guppy && <Portrait src={portraits.allen} alt="Allen B. Hwang, pleased" bg="bg-[#cdb4e0]" className="h-20 w-20" />}
           <div>
             <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-barn">
-              {guppy ? 'Slopwood Forest / Trail Encounter' : `Course ${hud.course + 1} / ${hud.courseName}`}
+              {guppy ? 'Folk Valley / Trail Encounter' : `Course ${hud.course + 1} / ${hud.courseName}`}
             </p>
             <h2 id="over-title" className="mt-1 font-display text-3xl leading-none sm:text-5xl">
               {hud.allen ? 'DINNER IS SERVED' : guppy ? 'GUPPY GOT YOU' : farm ? 'THE FARM GOT EATEN' : 'KENJI GOT PLATED'}
