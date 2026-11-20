@@ -201,6 +201,7 @@ export default function App() {
           loadout={hud.allen ? undefined : { actives: hud.actives, owned: hud.owned, onAssign: (slot, id) => game.current?.setLoadoutSlot(slot, id) }}
           note={onlinePlay ? `Room ${net!.room} · the game keeps going while you're paused.` : hud.allen ? undefined : 'Your progress saves on this browser between courses. Pick it up again with Continue on the title screen.'}
           onReturnFarm={hud.area === 'forest' ? () => game.current?.returnToFarm() : undefined}
+          grind={hud.allen ? undefined : hud}
         />
       )}
       {hud && screen === 'gameover' && <GameOverScreen hud={hud} portraits={portraits} onRetry={() => game.current?.retryCourse()} actions={runActions(true)} />}

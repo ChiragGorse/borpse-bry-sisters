@@ -46,7 +46,7 @@ import {
   type TurretModel,
   type PotModel,
 } from './models';
-import { ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN_STAGES, FINALE, earwhenStage, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
+import { COMBOS, COMBO_TIERS, comboTier, xpForRank, ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN_STAGES, FINALE, earwhenStage, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
 import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
@@ -57,13 +57,14 @@ import { bindLabel, translate, type BindAction } from './keybinds';
 import { onVolumeChange } from './volume';
 import { buildForest, type ForestWorld } from './forest';
 import { makePathGuppy, type GuppyModel } from './guppy';
-import { COIL, FOREST_BOUND, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
+import { GARDEN_PLOTS, COIL, FOREST_BOUND, FOREST_EXIT, GUPPY_SWING, SPOT, TRUFFLE_SPOTS, isOnLakeDock } from './layout';
 import { GamepadInput, PAD_ACTIONS, PadMenuRepeat, padActionLabel, padDown, type PadFrame, type PadLayout, type PadMenuCommand } from './gamepad';
 import { MAX_SQUAD, Sim, newPlayer, zapCooldown } from './sim/Sim';
 import type { GameSim } from './sim/gameSim';
 import { NetClient, defaultServerUrl, type NetStatus } from './net/NetClient';
 import type { NetSim } from './net/NetSim';
 import { BotBrain } from './sim/botBrain';
+import { GardenView } from './garden';
 import { clearSave, loadSave, writeSave, type SaveData } from './save';
 import { GAME_VERSION } from './changelog';
 import { ALLEN_ID, BTN, type EarwhenBot, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
@@ -263,6 +264,7 @@ export class Game {
   /** Id of the pig this browser controls. */
   private localId: number;
   private brain: BotBrain | null = null;
+  private garden: GardenView;
   private botIds: number[] = [];
   private wasOpening = false;
   private wasAllenActive = false;
@@ -421,6 +423,8 @@ export class Game {
     /* world + cast */
     this.world = buildWorld();
     this.scene.add(this.world.group);
+    this.garden = new GardenView(GARDEN_PLOTS.map((p, i) => ({ id: i, x: p.x, z: p.z, g: 0, planted: false, wet: 0, gold: false })));
+    this.world.group.add(this.garden.group);
 
     /* the simulation, with the local pig (and any stand-in bots) */
     this.onNet = opts.onNet;
@@ -1614,6 +1618,7 @@ export class Game {
     this.updateSky(dt);
     this.updateForestMood(dt);
     this.updateMusic();
+    this.garden.update(this.sim.plots, this.time);
     this.autosave(dt);
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);
@@ -4071,6 +4076,14 @@ export class Game {
       stam: k.stam,
       maxStam: k.maxStam,
       truffles: sim.truffles,
+      rank: sim.rank,
+      xp: Math.floor(sim.xp),
+      xpNext: xpForRank(sim.rank),
+      combos: COMBOS.map((c) => {
+        const uses = sim.comboUses[c.id] ?? 0;
+        const tier = comboTier(uses);
+        return { id: c.id, name: c.name, uses, tier, next: COMBO_TIERS[tier] ?? null, hint: c.hint, how: c.how, what: c.what, ready: c.needs.every((n) => sim.levels[n] > 0) };
+      }),
       farm: sim.farmPct(),
       chargeCd: k.chargeCd / (6 * (1 - 0.175 * lv.rocket)),
       zapCd: k.zapCd / zapCooldown(lv.zap),

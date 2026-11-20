@@ -12,7 +12,7 @@
 import type { SimEvent } from '../sim/types';
 import type { UpgradeId } from '../data';
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const TICK_HZ = 30;
 /** Clients render other entities this far behind the newest snapshot, to interpolate smoothly. */
 export const INTERP_DELAY = 0.1;
@@ -21,7 +21,7 @@ export const MAX_NAME = 16;
 /* ───────── which fields of each entity go over the wire ───────── */
 
 export const KEYS = {
-  player: ['id', 'epoch', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick', 'portalCd', 'decoyCd', 'potionCd', 'smashCd'],
+  player: ['id', 'epoch', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'hp', 'stam', 'action', 't', 'combo', 'hitDone', 'riverRush', 'grounded', 'blink', 'muddy', 'focus', 'zapAura', 'flowCount', 'flowTimer', 'chargeCd', 'zapCd', 'squealCd', 'whipCd', 'rushWindow', 'chainHits', 'hurtTick', 'portalCd', 'decoyCd', 'potionCd', 'smashCd', 'rushT'],
   playerMeta: ['id', 'name', 'tint', 'maxHp', 'maxStam', 'flowMove', 'prompt', 'shopNpc'],
   allen: ['active', 'x', 'y', 'z', 'heading', 'hp', 'state', 't', 'poise', 'walk', 'flash', 'exposed', 'shielded', 'shieldT', 'tx', 'tz', 'airDur', 'target', 'phase', 'cdSwipe', 'cdSlam', 'cdThrow', 'cdDash', 'cdSummon', 'cdGuard', 'cdRain', 'cdSpin', 'tilt', 'backroomsT'],
   allenMeta: ['maxHp', 'poiseMax', 'phases', 'potTotal', 'shieldDur', 'enraged'],
@@ -89,6 +89,8 @@ export interface Meta {
   subtitle: { who: string; text: string } | null;
   banner: { title: string; sub: string; key: number } | null;
   edibleHp: number[];
+  /** Hog Rank, XP, combo mastery and the garden. */
+  grind: { rank: number; xp: number; combos: Record<string, number>; plots: [number, number, number, number][] };
   /** A person plays Allen; his prompt; seconds until he's back for the next course. */
   allenPlayer: boolean;
   allenPrompt: string | null;

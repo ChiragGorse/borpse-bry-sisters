@@ -3,7 +3,7 @@
  * saves itself between courses: which course is next, truffles, upgrades, the state of the farm, and
  * the pig's ability loadout. No THREE or DOM beyond localStorage, which may be missing or blocked.
  */
-import { type HogName, type UpgradeId } from './data';
+import { type ComboId, type HogName, type UpgradeId } from './data';
 
 export interface SaveData {
   v: 1;
@@ -24,6 +24,13 @@ export interface SaveData {
   loadout: (string | null)[];
   /** Stand-in bot pigs in the herd when saved. */
   bots: number;
+  /** Hog Rank and XP toward the next (older saves: rank 1). */
+  rank?: number;
+  xp?: number;
+  /** Combo mastery: uses of each combo. */
+  comboUses?: Partial<Record<ComboId, number>>;
+  /** Rickley's garden plots, in order. */
+  plots?: { g: number; planted: boolean; wet: number; gold: boolean }[];
 }
 
 const KEY = 'borpse.save.v1';

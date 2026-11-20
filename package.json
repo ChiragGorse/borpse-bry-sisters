@@ -17,7 +17,8 @@
     "hunt:test": "node scripts/run-ts.mjs scripts/hunt-test.ts",
     "respawn:test": "node scripts/run-ts.mjs scripts/respawn-test.ts",
     "stun:test": "node scripts/run-ts.mjs scripts/stun-test.ts",
-    "save:test": "node scripts/run-ts.mjs scripts/save-test.ts"
+    "save:test": "node scripts/run-ts.mjs scripts/save-test.ts",
+    "grind:test": "node scripts/run-ts.mjs scripts/grind-test.ts"
   },
   "dependencies": {
     "clsx": "2.1.1",

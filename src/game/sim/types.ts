@@ -101,6 +101,8 @@ export interface Player {
   chargeCd: number;
   zapCd: number;
   zapAura: number;
+  /** Adrenaline Gulp: seconds of hitting 30% harder. */
+  rushT: number;
   squealCd: number;
   whipCd: number;
   focus: number;
@@ -146,7 +148,7 @@ export const POSE_KEYS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'stam', 'stamDelay', 'action', 't', 'combo', 'comboTimer', 'buffered',
   'hitDone', 'hitDone2', 'invuln', 'blink', 'chargeCd', 'zapCd', 'zapAura', 'squealCd', 'whipCd', 'focus', 'dodged',
   'rollChain', 'chainHits', 'rushWindow', 'riverRush', 'flowCount', 'flowTimer', 'flowMove', 'muddy', 'rdx', 'rdz',
-  'grounded', 'dummyChargeHit', 'portalCd', 'decoyCd', 'potionCd', 'smashCd',
+  'grounded', 'dummyChargeHit', 'portalCd', 'decoyCd', 'potionCd', 'smashCd', 'rushT',
 ] as const;
 export type Pose = Partial<Pick<Player, (typeof POSE_KEYS)[number]>>;
 

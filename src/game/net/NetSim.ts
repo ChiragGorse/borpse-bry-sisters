@@ -10,10 +10,11 @@
  * the shared world and passes the effects on to everyone else. The server still owns health; it tells
  * this pig when it got hit (`knock`) and moves it by force (respawn, travel) by bumping its epoch.
  */
-import type { GameOverReason, HogName, UpgradeId } from '../data';
+import type { ComboId, GameOverReason, HogName, Plot, UpgradeId } from '../data';
+import { GARDEN_PLOTS } from '../layout';
 import { emptyLevels } from '../data';
 import type { Collider } from '../layout';
-import { Sim, newAllen, newPlayer, poseOf, type AllenState } from '../sim/Sim';
+import { Sim, emptyComboUses, newAllen, newPlayer, poseOf, type AllenState } from '../sim/Sim';
 import type { EdibleState, GameSim } from '../sim/gameSim';
 import { ALLEN_ID, NO_INPUT, POSE_KEYS, type Ally, type Area, type Bot, type Decoy, type Hazard, type Kernel, type Memorial, type Pickup, type Player, type PlayerInput, type Pot, type Proj, type Puddle, type Shock, type SimEvent, type SimMaps, type Strike, type Wild } from '../sim/types';
 import { INTERP_DELAY, KEYS, LISTS, TICK_HZ, pack, unpack, type ClientMsg, type Hot, type Meta, type ServerMsg, type Stats, type WireStrike } from './protocol';
@@ -63,6 +64,10 @@ export class NetSim implements GameSim {
   levels = emptyLevels();
   repairCount = 0;
   truffles = 0;
+  plots: Plot[] = GARDEN_PLOTS.map((p, i) => ({ id: i, x: p.x, z: p.z, g: 0, planted: false, wet: 0, gold: false }));
+  rank = 1;
+  xp = 0;
+  comboUses: Record<ComboId, number> = emptyComboUses();
   stats: Stats = { time: 0, dealt: 0, taken: 0, earned: 0, fallen: 0, ko: 0 };
   recruitedHogs = new Set<HogName>();
   hunt: { total: number; found: number; tx: number; tz: number; done: boolean } | null = null;
@@ -190,6 +195,9 @@ export class NetSim implements GameSim {
     sh.mode = this.mode;
     sh.course = this.course;
     sh.setLevels(this.levels);
+    sh.rank = this.rank;
+    sh.comboUses = this.comboUses;
+    sh.kernels = copy<Kernel>(f.lists.kernel);
     sh.hunt = this.hunt;
     sh.overReason = this.overReason;
     sh.recruitedHogs = this.recruitedHogs;
@@ -231,6 +239,19 @@ export class NetSim implements GameSim {
     this.levels = m.levels;
     this.repairCount = m.repairCount;
     this.truffles = m.truffles;
+    if (m.grind) {
+      this.rank = m.grind.rank;
+      this.xp = m.grind.xp;
+      this.comboUses = { ...emptyComboUses(), ...(m.grind.combos as Record<ComboId, number>) };
+      m.grind.plots.forEach(([planted, g, wet, gold], i) => {
+        const pl = this.plots[i];
+        if (!pl) return;
+        pl.planted = !!planted;
+        pl.g = g;
+        pl.wet = wet ? 1 : 0;
+        pl.gold = !!gold;
+      });
+    }
     this.recruitedHogs = new Set(m.recruited as HogName[]);
     this.hunt = m.hunt;
     this.forestHint = m.forestHint;

@@ -5,7 +5,7 @@
  */
 import { PathFollower } from './nav';
 import type { SaveData } from '../save';
-import { COURSES, EARWHEN, EARWHEN_STAGES, FINALE, LAST_COURSE, earwhenStage, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
+import { COMBOS, GROW_TIME, HARVEST_BASE, PLANT_COST, RANK_BONUS_CAP, RANK_DMG, RANK_HP, comboTier, xpForRank, type ComboId, type Plot, COURSES, EARWHEN, EARWHEN_STAGES, FINALE, LAST_COURSE, earwhenStage, HOG_NAMES, OPENING_BEATS, UPGRADES, costOf, maxLevel, emptyLevels, type BotKind, type GameOverReason, type HogName, type NpcId, type UpgradeId } from '../data';
 import type { SfxName } from '../audio';
 import {
   BOUND,
@@ -19,6 +19,7 @@ import {
   GUPPY_HP,
   GUPPY_SWING,
   SPOT,
+  GARDEN_PLOTS,
   isOnLakeDock,
   type Collider,
 } from '../layout';
@@ -59,6 +60,8 @@ import {
 const PI = Math.PI;
 const TAU = PI * 2;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+const freshPlots = (): Plot[] => GARDEN_PLOTS.map((p, i) => ({ id: i, x: p.x, z: p.z, g: 0, planted: false, wet: 0, gold: false }));
+export const emptyComboUses = (): Record<ComboId, number> => Object.fromEntries(COMBOS.map((c) => [c.id, 0])) as Record<ComboId, number>;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (a: number, b: number, step: number) => (a < b ? Math.min(a + step, b) : Math.max(a - step, b));
 const angDiff = (a: number, b: number) => {
@@ -165,6 +168,7 @@ export function newPlayer(id: number, name: string, tint: number): Player {
     chargeCd: 0,
     zapCd: 0,
     zapAura: 0,
+    rushT: 0,
     squealCd: 0,
     whipCd: 0,
     focus: 0,
@@ -236,6 +240,8 @@ export function newAllen() {
     dropAcc: 0,
     stunDur: 0,
     stunImmune: 0,
+    /** Seconds after he stumbles out of the Backrooms when a hit is a Portal Pounce. */
+    pounce: 0,
     /** A heavy stun already got through this immunity window (only one does). */
     immuneHit: false,
     recoverDur: 0,
@@ -308,6 +314,13 @@ export class Sim {
   levels = emptyLevels();
   repairCount = 0;
   truffles = 0;
+  /** Rickley's truffle garden: plant spores, water them, harvest truffles. Keeps growing through courses. */
+  plots: Plot[] = freshPlots();
+  /** Hog Rank: the whole herd earns XP from fighting, farming and combos. */
+  rank = 1;
+  xp = 0;
+  /** How often the herd has pulled off each ability combo (mastery comes with use). */
+  comboUses: Record<ComboId, number> = emptyComboUses();
   stats = { time: 0, dealt: 0, taken: 0, earned: 0, fallen: 0, ko: 0 };
   recruitedHogs = new Set<HogName>();
   /** The current Hog Hunt: caches dug up so far, and where the next one is (tx, tz). */
@@ -597,6 +610,134 @@ export class Sim {
     this.dirty = true;
   }
 
+  /* ───────────────────────── grinding: XP, combos, the garden ───────────────────────── */
+
+  /** The herd earns Hog Rank XP. Each rank-up pays out truffles and (up to a cap) a little more damage and health. */
+  private gainXp(n: number) {
+    if (!(n > 0) || this.allenPlayer) return;
+    this.xp += n;
+    let ups = 0;
+    while (this.xp >= xpForRank(this.rank)) {
+      this.xp -= xpForRank(this.rank);
+      this.rank++;
+      ups++;
+    }
+    if (ups) {
+      const reward = ups * (10 + 3 * this.rank);
+      this.truffles += reward;
+      this.stats.earned += reward;
+      this.applyStats(false);
+      this.sound('buy');
+      const lead = this.players.find((p) => p.action !== 'dead') ?? this.players[0];
+      if (lead) this.floatText(lead.x, 3.4, lead.z, `HOG RANK ${this.rank}! +${reward}`, 'gold hog-callout');
+      this.dirty = true;
+    }
+  }
+
+  /** Mastery multiplier for a combo: 1 when just found, +25% per tier after that. */
+  private comboPower(id: ComboId): number {
+    return 1 + 0.25 * Math.max(0, comboTier(this.comboUses[id]) - 1);
+  }
+
+  /** A pig pulled off a combo: count it toward mastery, shout it, and return its strength multiplier. */
+  private combo(p: Player, id: ComboId): number {
+    const def = COMBOS.find((c) => c.id === id)!;
+    const before = comboTier(this.comboUses[id]);
+    this.comboUses[id]++;
+    const tier = comboTier(this.comboUses[id]);
+    if (!this.replaying) {
+      this.floatText(p.x, 3.6 + p.y, p.z, `COMBO · ${def.name.toUpperCase()}!`, 'crit hog-callout');
+      this.sound('thunder');
+    }
+    if (tier > before) {
+      if (before === 0) this.showBanner('NEW COMBO!', `${def.name}: ${def.what}`);
+      else this.showBanner(`${def.name.toUpperCase()} ${'I'.repeat(tier)}`, `Combo mastery up: ${Math.round((this.comboPower(id) - 1) * 100)}% stronger`);
+    }
+    this.gainXp(before === 0 ? 25 : 6);
+    this.dirty = true;
+    return this.comboPower(id);
+  }
+
+  /** Planted truffles grow all the time (faster with compost and water), even while the herd is away. */
+  private updateGarden(dt: number) {
+    const lv = this.levels.compost;
+    const speed = [1, 1.4, 1.8, 2.0][Math.min(lv, 3)] / GROW_TIME;
+    for (const pl of this.plots) {
+      if (!pl.planted || pl.g >= 1) continue;
+      const before = Math.floor(pl.g * 20);
+      pl.g = Math.min(1, pl.g + speed * (pl.wet > 0 ? 2 : 1) * dt);
+      pl.wet = Math.max(0, pl.wet - dt);
+      // the HUD (and online, everyone's garden) only needs to hear about it every 5%
+      if (Math.floor(pl.g * 20) !== before) this.dirty = true;
+      if (pl.g >= 1 && this.area === 'farm') {
+        this.fx.sparks(pl.x, 0.8, pl.z, 12, pl.gold ? 0xffd23d : 0xc79a6b, 4, 0.14, 0.5, { up: 1, grav: 3, hdr: 2.8 });
+      }
+    }
+  }
+
+  /** Planting, watering and harvesting the plot this pig stands at. True if it's at one. */
+  private gardenInteract(k: Player, e: boolean): boolean {
+    if (this.area !== 'farm') return false;
+    let pl: Plot | null = null;
+    let best = 1.7;
+    for (const o of this.plots) {
+      const d = Math.hypot(k.x - o.x, k.z - o.z);
+      if (d < best) {
+        best = d;
+        pl = o;
+      }
+    }
+    if (!pl) return false;
+    const lv = this.levels.compost;
+    if (!pl.planted) {
+      k.prompt = `E|Plant truffle spores (${PLANT_COST} truffles)`;
+      if (!e) return true;
+      if (this.truffles < PLANT_COST) {
+        this.sound('deny', k);
+        this.floatText(pl.x, 1.8, pl.z, `Need ${PLANT_COST} truffles`, 'info');
+        return true;
+      }
+      this.truffles -= PLANT_COST;
+      pl.planted = true;
+      pl.g = 0;
+      pl.wet = 0;
+      pl.gold = lv >= 3 && this.rnd() < 0.2;
+      this.sound('truffle', k);
+      this.fx.dust(pl.x, 0.3, pl.z, 6, 0x6b4a2b, { spread: 0.4, speed: 2.5, rise: 1.2, size0: 0.4, size1: 1.2, life: 0.5 });
+      this.gainXp(2);
+      this.dirty = true;
+    } else if (pl.g < 1) {
+      const pct = Math.floor(pl.g * 100);
+      if (pl.wet > 0) {
+        k.prompt = `E|Growing… ${pct}% (watered)`;
+        return true;
+      }
+      k.prompt = `E|Water the truffles (${pct}% grown · grows twice as fast while wet)`;
+      if (!e) return true;
+      pl.wet = lv >= 2 ? 40 : 25;
+      this.sound('splash', k);
+      this.fx.waterBurst(pl.x, 0.6, pl.z, 0.8, 4);
+      this.gainXp(1);
+      this.dirty = true;
+    } else {
+      const gain = (HARVEST_BASE + 4 * Math.min(lv, 3)) * (pl.gold ? 3 : 1);
+      k.prompt = `E|Harvest ${pl.gold ? 'a GOLDEN truffle' : 'the truffles'} (+${gain})`;
+      if (!e) return true;
+      this.truffles += gain;
+      this.stats.earned += gain;
+      this.floatText(pl.x, 2.2, pl.z, `+${gain} truffles`, 'gold');
+      this.sound(pl.gold ? 'buy' : 'truffle', k);
+      this.fx.sparks(pl.x, 0.8, pl.z, 18, pl.gold ? 0xffd23d : 0xc79a6b, 6, 0.16, 0.5, { up: 1, grav: 6, hdr: 3 });
+      this.gainXp(pl.gold ? 24 : 8);
+      pl.planted = false;
+      pl.g = 0;
+      pl.wet = 0;
+      pl.gold = false;
+      this.dirty = true;
+    }
+    return true;
+  }
+
   /**
    * The run's progress, for saving in the browser, or null when this isn't a good moment to save
    * (anywhere but the farm between courses, a person playing Allen, or the run is over).
@@ -613,6 +754,10 @@ export class Sim {
       squad: this.allies.filter((a) => a.dying <= 0 && a.hp > 0).map((a) => ({ name: a.name, tint: a.tint, hp: a.hp, maxHp: a.maxHp })),
       stats: { ...this.stats },
       huntedCourse: this.huntedCourse,
+      rank: this.rank,
+      xp: this.xp,
+      comboUses: { ...this.comboUses },
+      plots: this.plots.map((p) => ({ g: p.g, planted: p.planted, wet: p.wet, gold: p.gold })),
     };
   }
 
@@ -639,6 +784,17 @@ export class Sim {
     });
     if (d.stats) this.stats = { ...this.stats, ...d.stats };
     this.huntedCourse = Number.isFinite(d.huntedCourse) ? d.huntedCourse : -1;
+    this.rank = Math.max(1, Math.floor(d.rank ?? 1) || 1);
+    this.xp = Math.max(0, Number(d.xp) || 0);
+    for (const c of COMBOS) this.comboUses[c.id] = Math.max(0, Math.floor(d.comboUses?.[c.id] ?? 0) || 0);
+    (d.plots ?? []).forEach((sp, i) => {
+      const pl = this.plots[i];
+      if (!pl || !sp) return;
+      pl.planted = !!sp.planted;
+      pl.g = clamp(Number(sp.g) || 0, 0, 1);
+      pl.wet = Math.max(0, Number(sp.wet) || 0);
+      pl.gold = !!sp.gold;
+    });
     this.applyStats(true);
     const finale = this.course >= FINALE;
     const next = finale ? `Earwhen ${earwhenStage(this.course) + 1}/${EARWHEN_STAGES.length}` : `Course ${this.course + 1}: ${COURSES[this.course].name}`;
@@ -735,6 +891,7 @@ export class Sim {
     p.squealCd = 0;
     p.whipCd = 0;
     p.focus = 0;
+    p.rushT = 0;
     p.dodged = false;
     p.rollChain = 0;
     p.chainHits = 0;
@@ -763,6 +920,10 @@ export class Sim {
     this.levels = emptyLevels();
     this.repairCount = 0;
     this.truffles = 0;
+    this.plots = freshPlots();
+    this.rank = 1;
+    this.xp = 0;
+    this.comboUses = emptyComboUses();
     this.course = 0;
     this.tod = 0;
     this.snapshot = null;
@@ -803,7 +964,7 @@ export class Sim {
   private applyStats(heal: boolean) {
     const lv = this.levels;
     for (const p of this.players) {
-      p.maxHp = 100 + [0, 25, 50, 80, 115][Math.min(lv.slop, 4)];
+      p.maxHp = 100 + [0, 25, 50, 80, 115][Math.min(lv.slop, 4)] + RANK_HP * Math.min(this.rank - 1, RANK_BONUS_CAP);
       p.maxStam = 100 + [0, 30, 60, 95][Math.min(lv.trotters, 3)];
       if (heal && p.action !== 'dead') p.hp = p.maxHp;
       p.hp = Math.min(p.hp, p.maxHp);
@@ -1122,6 +1283,7 @@ export class Sim {
     this.mode = 'intermission';
     this.course++;
     this.tod = Math.min(this.course, 7);
+    this.gainXp(40 + 12 * this.course);
     // modest breather heal — dead hogs stay dead, surviving hogs patch up +18 HP; knocked-out players get back up
     for (const p of this.players) this.revive(p, 0.4, 20);
     this.healSurvivors(18);
@@ -1218,6 +1380,7 @@ export class Sim {
     this.updateShocks(sdt);
     this.updateTurret(sdt);
     this.updatePickups(sdt);
+    this.updateGarden(dt);
     for (const p of this.players) this.updateInteract(p);
     // a person playing Allen doesn't wait for the bell forever: he comes back after a short break
     if (this.allenPlayer && this.mode === 'intermission' && this.area === 'farm' && !this.hunt && !this.overReason && this.players.length) {
@@ -1345,7 +1508,8 @@ export class Sim {
 
   private attackMul(p: Player): number {
     const tuskBonus = [0, 0.22, 0.44, 0.66, 0.9][Math.min(this.levels.tusks, 4)];
-    return (1 + tuskBonus) * (1 + this.flowBonusPct(p) / 100) * (p.focus > 0 ? 1.35 : 1);
+    const rankBonus = 1 + RANK_DMG * Math.min(this.rank - 1, RANK_BONUS_CAP);
+    return (1 + tuskBonus) * (1 + this.flowBonusPct(p) / 100) * (p.focus > 0 ? 1.35 : 1) * (p.rushT > 0 ? 1.3 : 1) * rankBonus;
   }
 
   private recordCombo(p: Player, move: string, chainAdd = 1) {
@@ -1665,6 +1829,22 @@ export class Sim {
     this.fx.dustRing(k.x, k.y, k.z, 12, 0.9, 0xc7f7ff, 8.5, 1.9, 0.6);
     this.fx.flash(k.x, k.y + 1.4, k.z, 0x4be3ff, 14, 0.34, 15);
     this.floatText(k.x, 2.4, k.z, lv >= 2 ? 'TIDAL FLOP!' : 'BELLY FLOP!', 'info');
+    // Mud Bomb: belly flopping into the mud pit
+    const mud = SPOT.mud;
+    if (this.area === 'farm' && Math.hypot(k.x - mud.x, k.z - mud.z) < mud.r) {
+      const pw = this.combo(k, 'mudBomb');
+      const MR = R + 5;
+      this.fx.shockWall(k.x, 0.1, k.z, 0x6b4a2b, 1.1, MR, 1.1, 3.4, 0.5, 6);
+      this.fx.chunks(k.x, 0.5, k.z, 26, 0x5a3c22, 14, 0.3, 0.8, 22, 0.9);
+      this.fx.dustRing(k.x, 0.05, k.z, 18, 1.4, 0x6b4a2b, 13, 2.4, 0.8);
+      for (const b of [...this.bots]) {
+        const d = Math.hypot(b.x - k.x, b.z - k.z) || 1;
+        if (d >= MR || b.kind === 'earwhen') continue;
+        b.stun = Math.max(b.stun, 1.6 + 0.6 * pw);
+        this.damageBot(b, 18 * pw, ((b.x - k.x) / d) * 16, ((b.z - k.z) / d) * 16, true);
+      }
+      if (A.active && Math.hypot(A.x - k.x, A.z - k.z) < MR) this.damageAllen(16 * pw, 45, { by: k, minor: true });
+    }
     let hit = false;
     if (A.active && A.y < 3.5 && Math.hypot(A.x - k.x, A.z - k.z) < R + 1.4) {
       if (this.damageAllen(dmg, poise, { heavy: true, by: k })) {
@@ -1787,6 +1967,7 @@ export class Sim {
     k.potionCd = Math.max(0, k.potionCd - dt);
     k.smashCd = Math.max(0, k.smashCd - dt);
     k.focus = Math.max(0, k.focus - dt);
+    k.rushT = Math.max(0, k.rushT - dt);
     k.rollChain = Math.max(0, k.rollChain - dt);
     k.rushWindow = Math.max(0, k.rushWindow - dt);
     if (k.rushWindow <= 0) k.chainHits = 0;
@@ -2139,6 +2320,11 @@ export class Sim {
     this.aim(k, mx, mz, moving, 16, 0.9);
     k.chargeCd = 6 * (1 - 0.175 * lv.rocket);
     this.sound('oink');
+    // Thunder Charge: charging while the Zap aura still crackles
+    if (k.zapAura > 0 && lv.zap > 0) {
+      this.combo(k, 'thunderCharge');
+      this.fx.lightning(k.x, k.y + 3, k.z, k.x, k.y + 0.6, k.z, 0x7df9ff, 0.12, 0.3);
+    }
     if (k.riverRush) {
       this.sound('splash');
       this.spawnShock(k.x, k.z, 4.4, 28, false, 0);
@@ -2170,12 +2356,33 @@ export class Sim {
     const hz = Math.cos(k.heading);
     const rush = k.riverRush;
     const rushMul = rush ? (lv.riverrush >= 2 ? 1.75 : 1.45) : 1;
-    const cd = (38 + 14 * lv.rocket) * rushMul;
+    const thunder = k.zapAura > 0 && lv.zap > 0 ? this.comboPower('thunderCharge') : 0;
+    const cd = (38 + 14 * lv.rocket) * rushMul * (thunder ? 1 + 0.35 * thunder : 1);
     const mul = this.attackMul(k);
+    // Pigsplosion: ram your own decoy and it blows up
+    for (const dc of [...this.decoys]) {
+      if (Math.hypot(dc.x - k.x, dc.z - k.z) > 2.3) continue;
+      const pw = this.combo(k, 'pigsplosion');
+      this.decoys = this.decoys.filter((o) => o !== dc);
+      this.sound('slam');
+      this.sound('pop');
+      this.addShake(0.8, k);
+      this.hitstop = Math.max(this.hitstop, 0.1);
+      this.fx.hitBurst(dc.x, 1.2, dc.z, 0x5ff2ff, 2.4);
+      this.fx.shockWall(dc.x, 0.1, dc.z, 0xff8fb0, 1.0, 7, 1.0, 3.8, 0.45, 10);
+      this.fx.groundMark(dc.x, 0, dc.z, 5.5, 'crater', 0x5ff2ff, 2.4);
+      for (const b of [...this.bots]) {
+        const d = Math.hypot(b.x - dc.x, b.z - dc.z) || 1;
+        if (d < 6.5) this.damageBot(b, 70 * pw * mul, ((b.x - dc.x) / d) * 22, ((b.z - dc.z) / d) * 22, true);
+      }
+      if (A.active && Math.hypot(A.x - dc.x, A.z - dc.z) < 7) this.damageAllen((40 + 5 * this.course) * pw * mul, 40, { by: k, fx: dc.x, fz: dc.z });
+      this.hitPots(dc.x, dc.z, 6.5, 50 * pw);
+    }
     for (const b of [...this.bots]) {
       if (!k.chargeHit.has(b.id) && Math.hypot(b.x - k.x, b.z - k.z) < (rush ? 2.7 : 2.1) + b.rad * 0.4) {
         k.chargeHit.add(b.id);
-        this.damageBot(b, (52 + 12 * lv.rocket) * rushMul * mul * 0.75, hx * 20, hz * 20, true);
+        this.damageBot(b, (52 + 12 * lv.rocket) * rushMul * mul * 0.75 * (thunder ? 1 + 0.5 * thunder : 1), hx * 20, hz * 20, true);
+        if (thunder) this.fx.lightning(k.x, k.y + 1, k.z, b.x, 1.1, b.z, 0x7df9ff, 0.09, 0.25);
         this.recordCombo(k, rush ? 'River Rush' : 'Hog Charge', 0);
         this.sound(rush ? 'splash' : 'hit');
       }
@@ -2218,6 +2425,14 @@ export class Sim {
         }
         this.floatText(A.x, 5.4, A.z, rush ? 'RIVER RUSH!' : 'HOG CHARGE!', rush ? 'crit' : 'info');
         if (lv.tesla > 0) this.teslaZap(k);
+        if (thunder) {
+          // the charge arcs off Allen into every bot nearby
+          for (const b of [...this.bots]) {
+            if (b.kind === 'earwhen' || Math.hypot(b.x - A.x, b.z - A.z) > 9) continue;
+            this.fx.lightning(A.x, 2.4, A.z, b.x, 1.1, b.z, 0x7df9ff, 0.1, 0.3);
+            this.damageBot(b, 30 * thunder * mul, 0, 0, true);
+          }
+        }
         k.action = 'none';
         k.riverRush = false;
         k.vx = -hx * 9;
@@ -2521,6 +2736,13 @@ export class Sim {
     const near = lv >= 2 ? 35 : 20;
     const before = p.hp;
     p.hp = Math.min(p.maxHp, p.hp + self);
+    // Adrenaline Gulp: drinking right after a Perfect Dodge
+    if (p.focus > 0) {
+      const pw = this.combo(p, 'adrenaline');
+      p.stam = p.maxStam;
+      p.rushT = 4 + 1.5 * pw;
+      this.fx.flash(p.x, 1.2, p.z, 0xff5a8a, 9, 0.3, 10);
+    }
     this.sound('buy');
     this.fx.motes(p.x, 1, p.z, 18, 0x7dff8a, 2.5, 0.2, 1, -3, 4, 0.8, 3);
     this.floatText(p.x, 2.6 + p.y, p.z, `+${Math.round(p.hp - before)}`, 'gold');
@@ -2631,6 +2853,20 @@ export class Sim {
     k.action = 'zap';
     k.t = 0;
     k.zapCd = zapCooldown(lv);
+    // Popcorn Storm: zapping corn kernels in flight pops them all
+    if (this.kernels.length) {
+      const pw = this.combo(k, 'popcorn');
+      for (const kn of this.kernels) {
+        this.fx.lightning(k.x, k.y + 1.2, k.z, kn.x, kn.y, kn.z, 0xffe14d, 0.07, 0.25);
+        this.fx.hitBurst(kn.x, kn.y, kn.z, 0xfff3b0, 1.3);
+        this.fx.sparks(kn.x, kn.y, kn.z, 14, 0xfff7d0, 8, 0.16, 0.5, { grav: 9, up: 0.6, hdr: 3, altColor: 0xffd23d });
+        for (const b of [...this.bots]) if (Math.hypot(b.x - kn.x, b.z - kn.z) < 3.4) this.damageBot(b, 30 * pw, (b.x - kn.x) * 4, (b.z - kn.z) * 4, true);
+        if (this.A.active && Math.hypot(this.A.x - kn.x, this.A.z - kn.z) < 3.8) this.damageAllen(14 * pw, 10, { by: k, fx: kn.x, fz: kn.z, minor: true });
+        this.hitPots(kn.x, kn.z, 3.4, 24 * pw);
+      }
+      this.sound('pop');
+      this.kernels = [];
+    }
     k.zapAura = 2.8 + lv * 0.6;
     k.invuln = Math.max(k.invuln, 0.2);
 
@@ -2788,7 +3024,9 @@ export class Sim {
   private doSqueal(p: Player) {
     const k = p;
     const lv = this.levels.squeal;
-    const R = lv >= 2 ? 13 : 9;
+    // Static Shriek: squealing while the Zap aura still crackles
+    const shriek = k.zapAura > 0 && this.levels.zap > 0 ? this.combo(k, 'staticShriek') : 0;
+    const R = (lv >= 2 ? 13 : 9) * (shriek ? 1.35 : 1);
     k.action = 'squeal';
     k.t = 0;
     k.squealCd = lv >= 2 ? 11 : 14;
@@ -2803,6 +3041,10 @@ export class Sim {
     const A = this.A;
     if (A.active && Math.hypot(A.x - k.x, A.z - k.z) < R + 1.5) {
       if (this.damageAllen(lv >= 2 ? 28 : 12, 20, { by: k })) this.stunAllen(lv >= 2 ? 2.6 : 1.8, false);
+      if (shriek) {
+        this.fx.lightning(k.x, k.y + 1.3, k.z, A.x, 2.6, A.z, 0x7df9ff, 0.14, 0.35);
+        this.damageAllen(20 * shriek, 12, { by: k, minor: true });
+      }
     }
     for (const b of [...this.bots]) {
       const dx = b.x - k.x;
@@ -2811,6 +3053,10 @@ export class Sim {
       if (d < R) {
         b.stun = 2.5;
         this.damageBot(b, 34, (dx / d) * 18, (dz / d) * 18, true);
+        if (shriek && b.hp > 0) {
+          this.fx.lightning(k.x, k.y + 1.3, k.z, b.x, 1.1, b.z, 0x7df9ff, 0.1, 0.3);
+          this.damageBot(b, 24 * shriek, (dx / d) * 6, (dz / d) * 6, true);
+        }
       }
     }
     this.hitPots(k.x, k.z, R, 30);
@@ -3051,13 +3297,21 @@ export class Sim {
       }
     }
     const crit = A.state === 'stunned';
-    const mult = A.exposed > 0 ? 1.35 : crit ? 1.25 : 1;
+    let mult = A.exposed > 0 ? 1.35 : crit ? 1.25 : 1;
+    // Portal Pounce: the first hit as he stumbles out of the Backrooms
+    if (A.pounce > 0 && o.by && !o.minor) {
+      A.pounce = 0;
+      mult *= 2 * this.combo(o.by, 'portalPounce');
+      this.floatText(A.x, A.y + 6.2, A.z, 'POUNCE!', 'crit');
+      this.fx.flash(A.x, 2.5, A.z, 0xffe14d, 14, 0.3, 14);
+    }
     let d = Math.min(Math.ceil(A.hp), Math.max(1, Math.round(dmg * mult)));
     // phase gates: Allen cannot be pushed past a phase line until that phase's shield stage is cleared
     const gate = A.phase < A.phases - 1 ? Math.ceil(A.maxHp * (1 - (A.phase + 1) / A.phases)) : 0;
     const gated = gate > 0 && A.hp - d <= gate;
     if (gated) d = Math.max(1, Math.ceil(A.hp - gate));
     A.hp -= d;
+    if (o.by) this.gainXp(d / 30);
     this.stats.dealt += d;
     A.flash = 0.12;
     this.floatText(A.x + this.rand(-0.8, 0.8), A.y + 4.2 + this.rand(0, 1), A.z, String(d), crit || A.exposed > 0 ? 'crit' : 'dmg');
@@ -3506,6 +3760,7 @@ export class Sim {
     const A = this.A;
     this.allenPrompt = null;
     if (!A.active) return;
+    A.pounce = Math.max(0, A.pounce - dt);
     const ctl = this.allenPlayer ? (this.inputs.get(ALLEN_ID) ?? NO_INPUT) : null;
     // a wireframe decoy is irresistible to the AI; a person playing Allen aims for themselves
     const lure = ctl ? null : this.nearestDecoy(A.x, A.z, 40);
@@ -4022,6 +4277,7 @@ export class Sim {
           A.y = 0;
           A.heading = PI;
           this.setA('enter');
+          A.pounce = 3;
           this.say('Allen', this.pick(['Endless yellow rooms… buzzing lights… I NEED A SNACK.', 'I was in there for YEARS. Probably.', 'Never. Again.']), 3.2);
           this.dirty = true;
         }
@@ -4226,6 +4482,7 @@ export class Sim {
     this.fx.hitBurst(b.x, b.kind === 'tenderizer' ? 1.6 : 1.05, b.z, 0xff9a2e, 0.8);
     if (b.hp <= 0) {
       this.stats.ko++;
+      this.gainXp(b.kind === 'tenderizer' ? 6 : 3);
       this.bots = this.bots.filter((o) => o !== b);
       // Killing a lit Kettle Bomber still pops a smaller blast that damages nearby enemies (not Kenji if sniped!)
       if (b.kind === 'bomber' && b.mode === 'fuse') {
@@ -5505,6 +5762,7 @@ export class Sim {
       }
       return;
     }
+    if (this.gardenInteract(k, e)) return;
     if (this.mode === 'intermission') {
       if (!this.greeted.rickley && near(SPOT.rickley, 10)) {
         this.greeted.rickley = true;
@@ -5725,6 +5983,7 @@ export class Sim {
     const h = this.hunt;
     const herb = this.herb();
     if (!c || !h) return;
+    this.gainXp(10);
     h.found++;
     for (let i = 0; i < 3; i++) this.spawnTruffle(c.x, c.z, true);
     this.fx.dust(c.x, 0.3, c.z, 10, 0x5c4630, { spread: 1, speed: 4, rise: 2.5, size0: 0.6, size1: 2, life: 0.8 });

@@ -57,6 +57,9 @@ interface Memory {
   /** Seconds before this bot thinks about shopping again. */
   shopCd: number;
   shop: Shopping | null;
+  /** The garden plot this bot is off to tend, and seconds before it thinks about the garden again. */
+  plot: number;
+  gardenCd: number;
   /** A dodge in progress: keep moving this way for a moment instead of dithering. */
   dodgeX: number;
   dodgeZ: number;
@@ -109,6 +112,8 @@ export class BotBrain {
         truffles: sim.truffles,
         shopCd: 2 + this.rnd() * 4,
         shop: null,
+        plot: -1,
+        gardenCd: 3 + this.rnd() * 6,
         dodgeX: 0,
         dodgeZ: 0,
         dodgeT: 0,
@@ -268,6 +273,7 @@ export class BotBrain {
     // ── intermission on the farm ──
     m.shopCd -= dt;
     m.ignoreT -= dt;
+    if (this.gardening(sim, p, m, dt, out, go)) return out;
     if (this.opts.shop !== false && this.shopping(sim, p, m, dt, out, go)) return out;
 
     // truffles lying close by
@@ -313,6 +319,36 @@ export class BotBrain {
     }
     go(m.wanderX, m.wanderZ, 1);
     return out;
+  }
+
+  /**
+   * Rickley's garden: harvest anything ripe, water dry plots, plant empty ones while the herd has truffles
+   * to spare. One chore at a time, then off to do something else for a bit. True while busy with it.
+   */
+  private gardening(sim: GameSim, p: Player, m: Memory, dt: number, out: PlayerInput, go: (x: number, z: number, stop?: number) => number): boolean {
+    m.gardenCd -= dt;
+    if (m.plot < 0) {
+      if (m.gardenCd > 0) return false;
+      m.gardenCd = 6 + this.rnd() * 8;
+      // someone else already on it? leave that plot to them
+      const taken = new Set([...this.mem.entries()].filter(([id]) => id !== p.id).map(([, o]) => o.plot));
+      const free = sim.plots.filter((pl) => !taken.has(pl.id));
+      const pick =
+        free.find((pl) => pl.planted && pl.g >= 1) ??
+        free.find((pl) => pl.planted && pl.g < 0.9 && pl.wet <= 0) ??
+        (sim.truffles >= 40 ? free.find((pl) => !pl.planted) : undefined);
+      if (!pick) return false;
+      m.plot = pick.id;
+      m.idleT = 0;
+    }
+    const pl = sim.plots[m.plot];
+    const want = !pl ? 'none' : !pl.planted ? (sim.truffles >= 40 ? 'plant' : 'none') : pl.g >= 1 ? 'harvest' : pl.wet <= 0 ? 'water' : 'none';
+    if (want === 'none') {
+      m.plot = -1;
+      return false;
+    }
+    if (go(pl.x, pl.z, 0.5) < 1.3) out.buttons |= BTN.interact;
+    return true;
   }
 
   /** Walk to a shop, browse a moment, buy something, leave. True while busy with it. */
@@ -589,6 +625,35 @@ export class BotBrain {
       out.buttons |= BTN.attack; // buffer the combo
     }
     if (d > 4 && d < 11 && p.chargeCd <= 0 && this.rnd() < dt * (open ? 4 : 1.2)) out.buttons |= BTN.charge;
+
+    // ── combos: a bot that knows the tricks ──
+    if (p.zapAura > 0 && m.abilityT <= 0) {
+      // still crackling from a zap: squeal into a crowd (Static Shriek) or charge in (Thunder Charge)
+      const crowd = sim.bots.filter((b) => b.kind !== 'earwhen' && Math.hypot(b.x - p.x, b.z - p.z) < 10).length;
+      if (lv.squeal > 0 && p.squealCd <= 0 && (crowd >= 1 || dA < 9)) {
+        useAbility(BTN.squeal);
+        return out;
+      }
+      if (p.chargeCd <= 0 && d > 2.5 && d < 12) {
+        out.buttons |= BTN.charge;
+        return out;
+      }
+    }
+    // a Perfect Dodge with a potion ready: Adrenaline Gulp
+    if (p.focus > 0 && lv.potion > 0 && p.potionCd <= 0 && hpFrac < 0.85) out.buttons |= BTN.potion;
+    // ram our own decoy when Allen's on it (Pigsplosion)
+    if (p.chargeCd <= 0) {
+      for (const dc of sim.decoys) {
+        const dd = Math.hypot(dc.x - p.x, dc.z - p.z);
+        if (dd > 3 && dd < 12 && allen && Math.hypot(A.x - dc.x, A.z - dc.z) < 5) {
+          steerDirect(dc.x, dc.z, 0);
+          out.buttons |= BTN.charge;
+          return out;
+        }
+      }
+    }
+    // the corn cannon's firing: zap the kernels for Popcorn Storm
+    if (lv.zap > 0 && p.zapCd <= 0 && sim.kernels.length >= 2 && this.rnd() < dt * 3) useAbility(BTN.zap);
 
     // ── abilities, used with some sense ──
     const bossStunnable = allen && A.state !== 'stunned' && A.stunImmune <= 0 && !A.shielded;

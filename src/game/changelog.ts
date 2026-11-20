@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.18',
+    date: '2026-11-20',
+    title: 'Farm, Grind, Combo',
+    changes: [
+      "Rickley's Truffle Garden, by the barn: plant truffle spores in six plots (5 truffles each), water them so they grow twice as fast, and harvest them for truffles. They keep growing while you fight, and bot pigs help tend them.",
+      'New Rickley upgrade, Truffle Compost: faster growth, bigger harvests, longer watering, and at level 3 a chance of Golden Truffles worth triple.',
+      'Hog Rank: everything earns herd XP (hits, kills, harvests, digging up caches, clearing courses, combos). Every rank pays out truffles and adds a little damage and max health, up to rank 26. Shown next to your truffles and in the pause menu.',
+      "Seven hidden ability combos to find: Static Shriek (zap, then squeal while it's crackling), Thunder Charge (charge while crackling), Pigsplosion (ram your own decoy), Popcorn Storm (zap the Corn Cannon's kernels in flight), Adrenaline Gulp (potion right after a Perfect Dodge), Mud Bomb (belly flop into the mud pit) and Portal Pounce (hit Allen as he stumbles out of the Backrooms).",
+      'Combos level up with use: four mastery tiers (at 1, 6, 20 and 50 uses), each 25% stronger. The Combo Book in the pause menu tracks them and gives hints for the ones you haven\u2019t found.',
+      'Your rank, combo mastery and garden are saved with the rest of your progress.',
+    ],
+  },
+  {
     version: 'Beta 0.17',
     date: '2026-11-20',
     title: 'Saved Games',

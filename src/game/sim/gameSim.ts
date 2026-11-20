@@ -3,7 +3,7 @@
  * The local `Sim` satisfies it directly; `NetSim` (../net/NetSim.ts) satisfies it by mirroring a
  * server's simulation and forwarding commands over the network.
  */
-import type { GameOverReason, HogName, UpgradeId } from '../data';
+import type { ComboId, GameOverReason, HogName, Plot, UpgradeId } from '../data';
 import type { Collider } from '../layout';
 import type { AllenState } from './Sim';
 import type { Ally, Area, Bot, Decoy, Hazard, Kernel, Memorial, Pickup, Player, PlayerInput, Pot, Proj, Puddle, Shock, SimEvent, Wild } from './types';
@@ -42,6 +42,10 @@ export interface GameSim {
   levels: Record<UpgradeId, number>;
   repairCount: number;
   truffles: number;
+  plots: Plot[];
+  rank: number;
+  xp: number;
+  comboUses: Record<ComboId, number>;
   stats: { time: number; dealt: number; taken: number; earned: number; fallen: number; ko: number };
   recruitedHogs: Set<HogName>;
   hunt: { total: number; found: number; tx: number; tz: number; done: boolean } | null;

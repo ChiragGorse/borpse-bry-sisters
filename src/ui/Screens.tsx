@@ -601,7 +601,10 @@ export function PauseScreen({
   loadout,
   onReturnFarm,
   onSfxPreview,
+  grind,
 }: {
+  /** Hog Rank and the combo book. */
+  grind?: Pick<HudState, 'rank' | 'xp' | 'xpNext' | 'combos'>;
   onSfxPreview?: () => void;
   muted: boolean;
   pad?: PadLayout;
@@ -685,6 +688,7 @@ export function PauseScreen({
             </ul>
           </section>
         )}
+        {grind && <ComboBook grind={grind} />}
         <details className="mt-4 rounded-xl border-[2.5px] border-ink bg-white p-3.5">
           <summary className="cursor-pointer font-display text-sm leading-none">CONTROLS</summary>
           <div className="mt-3">
@@ -698,11 +702,58 @@ export function PauseScreen({
             <li>Sauce Shield / Wok Guard / Sizzle Spin: smash all sauce jars, flank his wok, and kite his spin.</li>
             <li>Kitchen Brigade: Grillbots bite, Sriracha Spitters leave burning chili puddles, Skewer Hounds lunge, Tenderizer Brutes armor-slam, and Kettle Bombers explode (knock them back with Tail-Whip!).</li>
             <li>Between courses, go on a Hog Hunt with Herb for truffles. Stay near his lantern.</li>
+            <li>Rickley&rsquo;s truffle garden (west of his stall): plant spores, water them, and come back to harvest. It keeps growing while you fight.</li>
+            <li>Everything earns Hog Rank XP: hits, kills, harvests, digs, cleared courses and combos. Each rank pays truffles and makes the herd a little tougher.</li>
           </ul>
         </details>
         <p className="mt-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-ink/45">{GAME_VERSION}</p>
       </div>
     </div>
+  );
+}
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV'];
+
+/** Hog Rank and the combo book: what you've found, how well you've mastered it, and hints for the rest. */
+function ComboBook({ grind }: { grind: Pick<HudState, 'rank' | 'xp' | 'xpNext' | 'combos'> }) {
+  const found = grind.combos.filter((c) => c.tier > 0).length;
+  return (
+    <section aria-labelledby="combo-title" className="mt-4 border-t-2 border-ink/15 pt-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 id="combo-title" className="font-display text-base leading-none">
+          HOG RANK {grind.rank}
+        </h3>
+        <span className="font-mono text-[11px] font-bold tabular-nums text-ink/60">
+          {grind.xp} / {grind.xpNext} XP
+        </span>
+      </div>
+      <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-ink bg-ink/10" role="progressbar" aria-label="XP to the next Hog Rank" aria-valuenow={grind.xp} aria-valuemax={grind.xpNext}>
+        <div className="h-full bg-[#7d5cff]" style={{ width: `${Math.min(100, (100 * grind.xp) / Math.max(1, grind.xpNext))}%` }} />
+      </div>
+      <details className="mt-3 rounded-xl border-[2.5px] border-ink bg-white p-3" open={found > 0}>
+        <summary className="cursor-pointer font-display text-sm leading-none">
+          COMBO BOOK · {found}/{grind.combos.length} FOUND
+        </summary>
+        <ul className="mt-2 grid gap-1.5">
+          {grind.combos.map((c) => (
+            <li key={c.id} className={`rounded-lg border-2 px-2.5 py-1.5 ${c.tier > 0 ? 'border-ink bg-[#f3eeff]' : 'border-dashed border-ink/35'}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className={`text-[13px] font-extrabold ${c.tier > 0 ? '' : 'text-ink/55'}`}>{c.tier > 0 ? c.name : '???'}</span>
+                {c.tier > 0 && (
+                  <span className="font-mono text-[10px] font-bold uppercase tabular-nums text-[#5a3fd6]">
+                    {ROMAN[c.tier]} · {c.uses}
+                    {c.next ? `/${c.next}` : ' · mastered'}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11.5px] font-bold leading-snug text-ink/65">
+                {c.tier > 0 ? `${c.how}. ${c.what}.` : c.ready ? c.hint : `${c.hint} (you don't have what it takes yet)`}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </section>
   );
 }
 

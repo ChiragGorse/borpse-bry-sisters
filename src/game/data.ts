@@ -26,7 +26,8 @@ export type UpgradeId =
   | 'potion'
   | 'regen'
   | 'speedrun'
-  | 'smash';
+  | 'smash'
+  | 'compost';
 
 export interface UpgradeDef {
   id: UpgradeId;
@@ -73,6 +74,17 @@ export const UPGRADES: UpgradeDef[] = [
     name: 'Trotter Training',
     levels: ['Run faster, +30 stamina, quicker recovery', 'Run faster still, +30 stamina', 'Peak pig agility, +35 stamina'],
     costs: [40, 75, 115],
+  },
+  {
+    id: 'compost',
+    npc: 'rickley',
+    name: 'Truffle Compost',
+    levels: [
+      'Garden truffles grow 40% faster and each harvest gives +4',
+      'Grow 80% faster, +8 a harvest, and watering lasts longer',
+      'Grow twice as fast, +12 a harvest, and a 1 in 5 chance of a Golden Truffle (x3)',
+    ],
+    costs: [30, 70, 130],
   },
   {
     id: 'repair',
@@ -506,6 +518,12 @@ export interface HudState {
   stam: number;
   maxStam: number;
   truffles: number;
+  /** Hog Rank, XP into it, and XP needed for the next. */
+  rank: number;
+  xp: number;
+  xpNext: number;
+  /** The combo book: found combos show how; the rest just a hint. */
+  combos: { id: ComboId; name: string; uses: number; tier: number; next: number | null; hint: string; how: string; what: string; ready: boolean }[];
   farm: number;
   chargeCd: number;
   zapCd: number;
@@ -601,6 +619,7 @@ export const emptyLevels = (): Record<UpgradeId, number> => ({
   regen: 0,
   speedrun: 0,
   smash: 0,
+  compost: 0,
 });
 
 /** Abilities you put in your loadout and fire with a slot key. */
@@ -658,3 +677,119 @@ export const EARWHEN = {
   hunger: 16,
   eatRate: 24,
 };
+
+/* ───────────────────────── grinding: the garden, Hog Rank and combos ───────────────────────── */
+
+/** Truffle spores cost this much to plant in a garden plot. */
+export const PLANT_COST = 5;
+/** Seconds for a planted plot to ripen with no compost and no water. */
+export const GROW_TIME = 95;
+/** Truffles from one ripe plot before compost. */
+export const HARVEST_BASE = 16;
+
+/** Herd XP needed to go from `rank` to the next one. */
+export function xpForRank(rank: number): number {
+  return Math.round(80 + 45 * rank + 4 * rank * rank);
+}
+/** Rank-ups stop giving stat bonuses past this (the grind keeps going for the truffles). */
+export const RANK_BONUS_CAP = 25;
+/** Per rank (up to the cap): extra damage, and extra max health. */
+export const RANK_DMG = 0.02;
+export const RANK_HP = 2;
+
+export type ComboId = 'staticShriek' | 'thunderCharge' | 'pigsplosion' | 'popcorn' | 'adrenaline' | 'mudBomb' | 'portalPounce';
+
+export interface ComboDef {
+  id: ComboId;
+  name: string;
+  /** Upgrades you need before it can happen. */
+  needs: UpgradeId[];
+  /** Shown before you've found it. */
+  hint: string;
+  /** Shown once you have. */
+  how: string;
+  what: string;
+}
+
+/** Niche interactions between abilities. Each one levels up with use (see COMBO_TIERS). */
+export const COMBOS: ComboDef[] = [
+  {
+    id: 'staticShriek',
+    name: 'Static Shriek',
+    needs: ['zap', 'squeal'],
+    hint: 'Squeal while something is still crackling\u2026',
+    how: 'Squeal while your Zap aura is still crackling',
+    what: 'A bigger squeal that throws lightning into every bot it hits',
+  },
+  {
+    id: 'thunderCharge',
+    name: 'Thunder Charge',
+    needs: ['zap'],
+    hint: 'Charge in while you\u2019re still charged up.',
+    how: 'Hog Charge while your Zap aura is still crackling',
+    what: 'The charge hits much harder and arcs into everything nearby',
+  },
+  {
+    id: 'pigsplosion',
+    name: 'Pigsplosion',
+    needs: ['decoy'],
+    hint: 'What happens if you ram your own decoy?',
+    how: 'Hog Charge into your own Wireframe Decoy',
+    what: 'The decoy blows up: big damage all around it',
+  },
+  {
+    id: 'popcorn',
+    name: 'Popcorn Storm',
+    needs: ['cannon', 'zap'],
+    hint: 'Corn in the air, and something hot\u2026',
+    how: 'Zap while the Corn Cannon has kernels in the air',
+    what: 'Every kernel pops into an exploding cloud of popcorn',
+  },
+  {
+    id: 'adrenaline',
+    name: 'Adrenaline Gulp',
+    needs: ['potion'],
+    hint: 'Drink at the most dangerous moment.',
+    how: 'Drink a Health Potion right after a Perfect Dodge',
+    what: 'Full stamina, and you hit 30% harder for a few seconds',
+  },
+  {
+    id: 'mudBomb',
+    name: 'Mud Bomb',
+    needs: ['bellyflop'],
+    hint: 'Pigs love mud. Bots don\u2019t.',
+    how: 'Belly Flop into the mud pit',
+    what: 'A mud wave that knocks over and stuns every bot around',
+  },
+  {
+    id: 'portalPounce',
+    name: 'Portal Pounce',
+    needs: ['portal'],
+    hint: 'Be waiting when he comes back.',
+    how: 'Hit Allen in the moment he drops out of the Backrooms',
+    what: 'A guaranteed critical hit for double damage',
+  },
+];
+
+/** Uses needed for each mastery tier of a combo; each tier makes it 25% stronger. */
+export const COMBO_TIERS = [1, 6, 20, 50];
+
+/** Mastery tier (0 = not found yet, 1..4) for a number of uses. */
+export function comboTier(uses: number): number {
+  let t = 0;
+  for (const need of COMBO_TIERS) if (uses >= need) t++;
+  return t;
+}
+
+export interface Plot {
+  id: number;
+  x: number;
+  z: number;
+  /** 0 empty; growing 0..1; ripe at 1. */
+  g: number;
+  planted: boolean;
+  /** Seconds of watering left (grows twice as fast). */
+  wet: number;
+  /** Ripens into a Golden Truffle. */
+  gold: boolean;
+}

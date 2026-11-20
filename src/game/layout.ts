@@ -25,6 +25,10 @@ export const SPOT = {
   charig: { x: 21, z: -27 },
 };
 
+/** Rickley's truffle garden: plots west of his stall. */
+export const GARDEN = { x: -38, z: -20 };
+export const GARDEN_PLOTS = [-3, 0, 3].flatMap((dx) => [-2, 2].map((dz) => ({ x: GARDEN.x + dx, z: GARDEN.z + dz })));
+
 /** Kingger's Tesla coil on the lab roof. */
 export const COIL = { x: 33.5, y: 3.35, z: 29.5 };
 

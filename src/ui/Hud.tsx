@@ -320,6 +320,16 @@ export function Hud({ hud, portraits, minimapRef, dim, touch = false, onInteract
             <div className="flex items-center gap-1.5" aria-label={`${hud.truffles} truffles`}>
               <TruffleIcon className="h-6 w-6" />
               <span className="font-display text-xl leading-none tabular-nums">{hud.truffles}</span>
+              <span
+                className="ml-1 flex flex-col rounded-md border-2 border-ink bg-[#7d5cff] px-1.5 py-0.5 text-paper"
+                title={`Hog Rank ${hud.rank}: ${hud.xp}/${hud.xpNext} XP`}
+                aria-label={`Hog Rank ${hud.rank}, ${hud.xp} of ${hud.xpNext} XP`}
+              >
+                <span className="font-mono text-[9px] font-bold uppercase leading-none tracking-wide">Rank {hud.rank}</span>
+                <span className="mt-0.5 h-1 w-12 overflow-hidden rounded-full bg-paper/30">
+                  <span className="block h-full bg-paper" style={{ width: `${Math.min(100, (100 * hud.xp) / Math.max(1, hud.xpNext))}%` }} />
+                </span>
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-1">
               {(hud.allies > 0 || hud.fallen > 0) && (

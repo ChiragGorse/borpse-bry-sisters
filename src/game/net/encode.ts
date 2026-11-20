@@ -62,6 +62,13 @@ export function encodeMeta(sim: Sim): Meta {
     subtitle: sim.subtitle ? { who: sim.subtitle.who, text: sim.subtitle.text } : null,
     banner: sim.banner ? { title: sim.banner.title, sub: sim.banner.sub, key: sim.banner.key } : null,
     edibleHp: sim.edibles.map((e) => Math.ceil(e.hp)),
+    grind: {
+      rank: sim.rank,
+      xp: Math.floor(sim.xp),
+      combos: { ...sim.comboUses },
+      // growth to 5%, so it only changes now and then
+      plots: sim.plots.map((p) => [p.planted ? 1 : 0, Math.floor(p.g * 20) / 20, p.wet > 0 ? 1 : 0, p.gold ? 1 : 0]),
+    },
     allenPlayer: sim.allenPlayer,
     allenPrompt: sim.allenPrompt,
     allenBreak: Math.ceil(sim.allenBreak),
