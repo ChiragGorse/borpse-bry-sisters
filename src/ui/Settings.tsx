@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { VolumeSliders } from './VolumeSliders';
 import { BIND_ACTIONS, MAX_KEYS, assignKey, clearKey, getBinds, keyLabel, onBindsChange, resetBinds, setBinds, type BindAction } from '../game/keybinds';
 
-const GFX_LABEL = { high: 'Cinematic', medium: 'Balanced', low: 'Fast' } as const;
+const GFX_LABEL = { high: 'Cinematic', medium: 'Balanced', low: 'Fast', potato: 'Potato' } as const;
 
 /**
  * Settings: sound, graphics, keyboard rebinding, and (on touch screens) arranging the on-screen buttons.
@@ -25,7 +25,7 @@ export function SettingsDialog({
   onEditTouch?: () => void;
   muted?: boolean;
   onMute?: () => void;
-  gfx?: 'high' | 'medium' | 'low';
+  gfx?: 'high' | 'medium' | 'low' | 'potato';
   onGraphics?: () => void;
 }) {
   const [tab, setTab] = useState<'keys' | 'touch'>(touch ? 'touch' : 'keys');
@@ -114,7 +114,7 @@ export function SettingsDialog({
               </button>
             )}
             {onGraphics && gfx && (
-              <button type="button" onClick={onGraphics} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide" title="Cinematic adds ambient occlusion, denser grass and sharper shadows. Fast is for slower computers.">
+              <button type="button" onClick={onGraphics} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide" title="Cinematic adds ambient occlusion, denser grass and sharper shadows. Fast is for slower computers. Potato turns off lighting, textures, shadows, grass and the sky for the slowest ones.">
                 Graphics: {GFX_LABEL[gfx]}
               </button>
             )}

@@ -7,7 +7,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 
-export type Quality = 'high' | 'medium' | 'low';
+/** `potato`: no lighting, no textures, no shadows, no sky, low resolution. */
+export type Quality = 'high' | 'medium' | 'low' | 'potato';
 
 export interface SkyState {
   /** Unit vector toward the sun (or moon). */
@@ -167,6 +168,7 @@ export class Gfx {
     if (this.retinaClamp) {
       return Math.min(dpr, this.quality === 'high' ? 1.15 : this.quality === 'medium' ? 1.0 : 0.85);
     }
+    if (this.quality === 'potato') return Math.min(dpr, 0.7);
     const cap = this.quality === 'high' ? 1.35 : this.quality === 'medium' ? 1.1 : 1.0;
     return Math.min(dpr, cap);
   }
@@ -177,7 +179,7 @@ export class Gfx {
     const pr = this.pixelRatio();
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
-    if (this.quality !== 'low') {
+    if (this.quality !== 'low' && this.quality !== 'potato') {
       this.composer.setPixelRatio(pr);
       this.composer.setSize(w, h);
       // Run both GTAO and Bloom at half buffer resolution (~4× less fill-rate cost, virtually identical quality)
@@ -191,10 +193,29 @@ export class Gfx {
   setQuality(q: Quality) {
     this.quality = q;
     this.ao.enabled = q === 'high';
+    const potato = q === 'potato';
+    // potato: flat colours as they are (no tone mapping), a plain background instead of the sky shader,
+    // and no sky reflections
+    this.renderer.toneMapping = potato ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = potato ? 1 : this.renderer.toneMappingExposure;
+    this.sky.visible = !potato;
+    if (potato) {
+      this.scene.environment = null;
+      this.envKey = '';
+    } else if (this.envRT) this.scene.environment = this.envRT.texture;
     this.setSize(this.w, this.h);
   }
 
   setSky(s: SkyState, dt: number) {
+    if (this.quality === 'potato') {
+      // no sky shader: just a flat colour, the fog's if there is one
+      const fog = this.scene.fog as THREE.Fog | THREE.FogExp2 | null;
+      const bg = (this.scene.background instanceof THREE.Color ? this.scene.background : (this.scene.background = new THREE.Color())) as THREE.Color;
+      if (fog) bg.copy(fog.color);
+      else bg.setRGB(0.55, 0.75, 0.92).multiplyScalar(Math.max(0.15, Math.min(1, s.gain)));
+      return;
+    }
+    if (this.scene.background instanceof THREE.Color) this.scene.background = null;
     for (const sky of [this.sky, this.envSky]) {
       const u = sky.material.uniforms;
       u.turbidity.value = s.turbidity;
@@ -222,7 +243,7 @@ export class Gfx {
 
   render(dt: number, time: number) {
     this.sky.position.copy(this.camera.position);
-    if (this.quality === 'low') {
+    if (this.quality === 'low' || this.quality === 'potato') {
       this.renderer.render(this.scene, this.camera);
       return;
     }

@@ -566,7 +566,7 @@ export interface HudState {
   gamepad: { layout: PadLayout; active: boolean } | null;
   controllerDisconnected: boolean;
   muted: boolean;
-  gfx: 'high' | 'medium' | 'low';
+  gfx: 'high' | 'medium' | 'low' | 'potato';
   overReason: GameOverReason | null;
   allies: number;
   alliesMax: number;

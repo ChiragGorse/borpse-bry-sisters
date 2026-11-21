@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.21',
+    date: '2026-11-21',
+    title: 'Potato Mode',
+    changes: [
+      'New graphics setting, Potato: no lighting, no textures, no shadows, no grass and no sky. Everything is drawn in flat colour at a lower resolution, for very slow computers. Pick it in Settings (Graphics: Cinematic, Balanced, Fast, Potato).',
+      'Your graphics choice is now remembered on your device.',
+      'If the game still runs very slowly on Fast, it now drops to Potato on its own (unless you picked a setting yourself).',
+    ],
+  },
+  {
     version: 'Beta 0.20',
     date: '2026-11-21',
     title: 'Earwhen, Sooner',

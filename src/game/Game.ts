@@ -50,6 +50,7 @@ import { COMBOS, COMBO_TIERS, comboTier, xpForRank, ACTIVE_IDS, ACTIVE_INFO, COU
 import { Sfx } from './audio';
 import { Music } from './music';
 import { Gfx, type Quality } from './gfx';
+import { PotatoMode } from './potato';
 import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
 import { SCARE_FACE_SVG } from '../ui/scareFace';
@@ -68,6 +69,9 @@ import { GardenView } from './garden';
 import { clearSave, loadSave, writeSave, type SaveData } from './save';
 import { GAME_VERSION } from './changelog';
 import { ALLEN_ID, BTN, type EarwhenBot, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
+
+/** The graphics level you picked, remembered on this device. */
+const GFX_KEY = 'borpse.gfx';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -210,6 +214,7 @@ export class Game {
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   private gfx: Gfx;
+  private potato!: PotatoMode;
   private stars: THREE.Points;
   private lit: Lit = { sunI: TODS[0].sunI, hemiI: TODS[0].hemiI, fogD: TODS[0].fogD, elev: TODS[0].elev, win: TODS[0].win, turb: TODS[0].turb, ray: TODS[0].ray, mie: TODS[0].mie, mieG: TODS[0].mieG, gain: TODS[0].gain, expo: TODS[0].expo };
   private skyTint = new THREE.Color(TODS[0].tint);
@@ -377,6 +382,7 @@ export class Game {
     this.portraits = this.makePortraits();
     // cinematic pipeline: atmospheric sky, sky lighting, ambient occlusion, bloom and filmic tone mapping
     this.gfx = new Gfx(this.renderer, this.scene, this.camera);
+    this.potato = new PotatoMode(this.scene);
 
     /* lights + sky */
     this.scene.fog = new THREE.FogExp2(TODS[0].fog, TODS[0].fogD);
@@ -515,7 +521,9 @@ export class Game {
     this.shieldGroup.visible = false;
     this.scene.add(this.shieldGroup);
 
-    this.applyQuality(this.detectQuality());
+    const saved = this.savedQuality();
+    if (saved) this.gfxAuto = false;
+    this.applyQuality(saved ?? this.detectQuality());
     this.placeTitle();
     this.resize();
     this.bind();
@@ -1090,11 +1098,27 @@ export class Game {
     this.keys.delete(code);
   }
 
-  /** Pause-menu graphics switch: Cinematic → Balanced → Fast. */
+  /** Settings graphics switch: Cinematic → Balanced → Fast → Potato. Your choice is remembered on this device. */
   cycleGraphics() {
     this.gfxAuto = false;
     const q = this.gfx.quality;
-    this.applyQuality(q === 'high' ? 'medium' : q === 'medium' ? 'low' : 'high');
+    const next: Quality = q === 'high' ? 'medium' : q === 'medium' ? 'low' : q === 'low' ? 'potato' : 'high';
+    try {
+      localStorage.setItem(GFX_KEY, next);
+    } catch {
+      /* storage blocked: just for this session */
+    }
+    this.applyQuality(next);
+  }
+
+  /** A graphics level chosen earlier on this device, if any. */
+  private savedQuality(): Quality | null {
+    try {
+      const q = localStorage.getItem(GFX_KEY);
+      return q === 'high' || q === 'medium' || q === 'low' || q === 'potato' ? q : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1132,11 +1156,18 @@ export class Game {
 
   private grassFactor() {
     const q = this.gfx.quality;
-    return q === 'high' ? 1 : q === 'medium' ? 0.52 : 0.2;
+    return q === 'high' ? 1 : q === 'medium' ? 0.52 : q === 'low' ? 0.2 : 0;
   }
 
   private applyQuality(q: Quality) {
     this.gfx.setQuality(q);
+    // potato: flat unlit colours, no textures, no shadows
+    const potato = q === 'potato';
+    this.potato.setActive(potato);
+    if (this.renderer.shadowMap.enabled === potato) {
+      this.renderer.shadowMap.enabled = !potato;
+      this.sun.castShadow = !potato;
+    }
     // 2048 (Cinematic) / 1024 (Balanced) / 768 (Fast): 4×–28× less shadow bandwidth than 4096 while staying crisp
     const size = q === 'high' ? 2048 : q === 'medium' ? 1024 : 768;
     if (this.sun.shadow.mapSize.x !== size) {
@@ -1144,7 +1175,7 @@ export class Game {
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
     }
-    this.parts.density = q === 'high' ? 1 : q === 'medium' ? 0.78 : 0.5;
+    this.parts.density = q === 'high' ? 1 : q === 'medium' ? 0.78 : q === 'low' ? 0.5 : 0.3;
     setGrassDensity(this.world.grass, this.grassFactor());
     if (this.forest) setGrassDensity(this.forest.grass, this.grassFactor());
     this.emit();
@@ -1155,7 +1186,7 @@ export class Game {
    * Uses real wall-clock time (not clamped game `dt`) so a slow GPU recovers within ~1.5 seconds instead of 40s.
    */
   private watchPerformance(raw: number) {
-    if (!this.gfxAuto || document.hidden || raw <= 0 || raw > 2000 || this.gfx.quality === 'low') return;
+    if (!this.gfxAuto || document.hidden || raw <= 0 || raw > 2000 || this.gfx.quality === 'potato') return;
     const sec = Math.min(raw, 500) / 1000;
     this.wallTime += sec;
     if (this.wallTime < 1.8) return; // skip initial shader compile / first-frame warmup
@@ -1171,7 +1202,7 @@ export class Game {
     if (this.slowT > 1.4) {
       this.slowT = 0;
       this.frameMs = 16;
-      this.applyQuality(this.gfx.quality === 'high' ? 'medium' : 'low');
+      this.applyQuality(this.gfx.quality === 'high' ? 'medium' : this.gfx.quality === 'medium' ? 'low' : 'potato');
     }
   }
 
@@ -1631,6 +1662,9 @@ export class Game {
     this.updateMusic();
     this.garden.update(this.sim.plots, this.time);
     this.autosave(dt);
+    // no lights in potato mode, so the dark forest is darkened by hand
+    this.potato.dim = this.sim.area === 'forest' ? 0.42 * this.lightMul + 0.08 : 1;
+    this.potato.update(dt);
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);
   };
