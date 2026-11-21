@@ -539,9 +539,11 @@ export class Game {
     this.shieldGroup.visible = false;
     this.scene.add(this.shieldGroup);
 
+    // Potato is the default look; pick another in Settings (it's remembered)
     const saved = this.savedQuality();
-    if (saved) this.gfxAuto = false;
-    this.applyQuality(saved ?? this.detectQuality());
+    this.detectQuality(); // still notes Retina clamps for the other levels
+    this.gfxAuto = false;
+    this.applyQuality(saved ?? 'potato');
     this.placeTitle();
     this.resize();
     this.bind();
@@ -1717,8 +1719,10 @@ export class Game {
     this.updateMusic();
     this.garden.update(this.sim.plots, this.time);
     this.autosave(dt);
-    // no lights in potato mode, so the dark forest is darkened by hand
-    this.potato.dim = this.sim.area === 'forest' ? 0.42 * this.lightMul + 0.08 : 1;
+    // potato mode has no lights: the forest is darkened by hand, and Herb's lantern is the one light
+    const inForest = this.sim.area === 'forest' && this.screen !== 'title';
+    this.potato.ambient = inForest ? 0.05 + 0.07 * this.lightMul : 1;
+    this.potato.setLamp(inForest && this.herbLight.intensity > 0.5 ? this.herbLight.position : null, (this.herbLight.intensity / 60) * 2.4);
     this.potato.update(dt);
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);

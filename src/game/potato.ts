@@ -1,5 +1,6 @@
 /**
  * Potato graphics: every lit, textured material in the scene is swapped for a flat, unlit colour
+ * (with one cheap exception: in the dark forest Herb's lantern lights things up around him)
  * (MeshBasicMaterial with no textures), so the GPU does almost no work per pixel. The originals are
  * kept and put back when you leave potato mode. Colours (hit flashes, glowing things) keep following
  * the original materials, so the game still reads the same, just flat.
@@ -18,12 +19,52 @@ function swappable(m: THREE.Material): m is Swappable {
 }
 
 const tmp = new THREE.Color();
-const glow = new THREE.Color();
+
+/**
+ * Shared by every flat material: how bright the world is with no lantern (`ambient`, 1 = flat colour as
+ * is), and Herb's lantern, a single point of light that fades out over `lampR` metres.
+ */
+const LIGHT = {
+  uAmbient: { value: 1 },
+  uLampPos: { value: new THREE.Vector3() },
+  uLampColor: { value: new THREE.Color(1.0, 0.72, 0.38) },
+  uLampI: { value: 0 },
+  uLampR: { value: 13 },
+};
+
+const VERT_DECL = 'varying vec3 vPotatoWorld;\n';
+const VERT_BODY = `
+  vec4 potatoWorld = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    potatoWorld = instanceMatrix * potatoWorld;
+  #endif
+  vPotatoWorld = (modelMatrix * potatoWorld).xyz;
+`;
+const FRAG_DECL = `varying vec3 vPotatoWorld;
+uniform float uAmbient;
+uniform vec3 uLampPos;
+uniform vec3 uLampColor;
+uniform float uLampI;
+uniform float uLampR;
+uniform vec3 uGlow;
+`;
+const FRAG_BODY = `
+  float potatoD = distance(vPotatoWorld, uLampPos);
+  float potatoLamp = uLampI * pow(clamp(1.0 - potatoD / uLampR, 0.0, 1.0), 1.6);
+  gl_FragColor.rgb = gl_FragColor.rgb * (vec3(uAmbient) + uLampColor * potatoLamp) + uGlow;
+`;
 
 export class PotatoMode {
   active = false;
-  /** Darkens everything (no lights to do it): lower in the haunted forest at night. */
-  dim = 1;
+  /** How bright the world is away from Herb's lantern (1 = flat colours as they are). */
+  set ambient(v: number) {
+    LIGHT.uAmbient.value = v;
+  }
+  /** Herb's lantern: where it is and how bright (0 = no lantern). */
+  setLamp(pos: THREE.Vector3 | null, intensity: number) {
+    LIGHT.uLampI.value = pos ? intensity : 0;
+    if (pos) LIGHT.uLampPos.value.copy(pos);
+  }
   private originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   private flat = new Map<THREE.Material, THREE.MeshBasicMaterial>();
   private scanT = 0;
@@ -44,6 +85,15 @@ export class PotatoMode {
         fog: src.fog,
         alphaTest: src.alphaTest,
       });
+      // its own glow (emissive) is added on top, so glowing things still glow in the dark
+      const glowU = { value: new THREE.Color() };
+      b.userData.glow = glowU.value;
+      b.onBeforeCompile = (sh) => {
+        Object.assign(sh.uniforms, LIGHT, { uGlow: glowU });
+        sh.vertexShader = VERT_DECL + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>' + VERT_BODY);
+        sh.fragmentShader = FRAG_DECL + sh.fragmentShader.replace('#include <opaque_fragment>', '#include <opaque_fragment>' + FRAG_BODY);
+      };
+      b.customProgramCacheKey = () => 'potato-lit';
       this.flat.set(src, b);
     }
     return b;
@@ -104,11 +154,12 @@ export class PotatoMode {
     }
     for (const [src, b] of this.flat) {
       const s = src as Swappable;
-      tmp.copy(s.color).multiplyScalar(this.dim);
-      // glowing things (emissive flashes, eyes, lava) still glow
+      b.color.copy(s.color);
+      // glowing things (emissive flashes, eyes, lava) still glow, even in the dark
       const e = (s as THREE.MeshStandardMaterial).emissive;
-      if (e) tmp.add(glow.copy(e).multiplyScalar((s as THREE.MeshStandardMaterial).emissiveIntensity ?? 1));
-      b.color.copy(tmp);
+      const g = b.userData.glow as THREE.Color;
+      if (e) g.copy(tmp.copy(e).multiplyScalar((s as THREE.MeshStandardMaterial).emissiveIntensity ?? 1));
+      else g.setRGB(0, 0, 0);
       b.opacity = s.opacity;
       b.transparent = s.transparent;
       b.visible = s.visible;

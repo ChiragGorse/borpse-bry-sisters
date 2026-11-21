@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.22',
+    date: '2026-11-21',
+    title: 'Potato by Default',
+    changes: [
+      'Potato is now the default graphics setting (your own choice in Settings still wins and is remembered).',
+      "In Potato, the Hog Hunt is much darker, and Herb's lantern is a real moving light: everything near him is lit warm and flickering, and everything else fades into the dark. When the lanterns gutter out, the light goes with them.",
+      'Glowing things (red eyes, hit flashes) still glow in the dark.',
+    ],
+  },
+  {
     version: 'Beta 0.21',
     date: '2026-11-21',
     title: 'Potato Mode',
