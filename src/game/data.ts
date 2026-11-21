@@ -567,6 +567,8 @@ export interface HudState {
   controllerDisconnected: boolean;
   muted: boolean;
   gfx: 'high' | 'medium' | 'low' | 'potato';
+  /** The FPS counter is showing. */
+  fps: boolean;
   overReason: GameOverReason | null;
   allies: number;
   alliesMax: number;

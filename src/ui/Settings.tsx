@@ -17,7 +17,11 @@ export function SettingsDialog({
   gfx,
   onGraphics,
   onSfxPreview,
+  fps,
+  onFps,
 }: {
+  fps?: boolean;
+  onFps?: () => void;
   onSfxPreview?: () => void;
   onClose: () => void;
   touch: boolean;
@@ -106,7 +110,7 @@ export function SettingsDialog({
           <VolumeSliders onSfxPreview={onSfxPreview} />
         </section>
 
-        {(onMute || onGraphics) && (
+        {(onMute || onGraphics || onFps) && (
           <div className="mt-3 flex flex-wrap gap-2">
             {onMute && (
               <button type="button" onClick={onMute} aria-pressed={muted} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide">
@@ -116,6 +120,11 @@ export function SettingsDialog({
             {onGraphics && gfx && (
               <button type="button" onClick={onGraphics} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide" title="Cinematic adds ambient occlusion, denser grass and sharper shadows. Fast is for slower computers. Potato turns off lighting, textures, shadows, grass and the sky for the slowest ones.">
                 Graphics: {GFX_LABEL[gfx]}
+              </button>
+            )}
+            {onFps && (
+              <button type="button" onClick={onFps} aria-pressed={fps} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide" title="Frames per second in the corner of the screen. F3 toggles it any time.">
+                FPS counter: {fps ? 'on' : 'off'}
               </button>
             )}
           </div>

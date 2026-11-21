@@ -72,6 +72,7 @@ import { ALLEN_ID, BTN, type EarwhenBot, type Ally, type Area, type Bot, type Pl
 
 /** The graphics level you picked, remembered on this device. */
 const GFX_KEY = 'borpse.gfx';
+const FPS_KEY = 'borpse.fps';
 
 const PI = Math.PI;
 const TAU = PI * 2;
@@ -215,6 +216,13 @@ export class Game {
   private hemi: THREE.HemisphereLight;
   private gfx: Gfx;
   private potato!: PotatoMode;
+  /** The FPS counter (F3). */
+  private fpsOn = false;
+  private fpsEl = document.createElement('div');
+  private fpsFrames = 0;
+  private fpsSince = 0;
+  private fpsLast = 0;
+  private fpsWorst = 0;
   private stars: THREE.Points;
   private lit: Lit = { sunI: TODS[0].sunI, hemiI: TODS[0].hemiI, fogD: TODS[0].fogD, elev: TODS[0].elev, win: TODS[0].win, turb: TODS[0].turb, ray: TODS[0].ray, mie: TODS[0].mie, mieG: TODS[0].mieG, gain: TODS[0].gain, expo: TODS[0].expo };
   private skyTint = new THREE.Color(TODS[0].tint);
@@ -383,6 +391,16 @@ export class Game {
     // cinematic pipeline: atmospheric sky, sky lighting, ambient occlusion, bloom and filmic tone mapping
     this.gfx = new Gfx(this.renderer, this.scene, this.camera);
     this.potato = new PotatoMode(this.scene);
+    this.fpsEl.className = 'fps-counter';
+    this.fpsEl.setAttribute('aria-hidden', 'true');
+    try {
+      this.fpsOn = localStorage.getItem(FPS_KEY) === '1';
+    } catch {
+      /* storage blocked */
+    }
+    this.fpsEl.style.display = this.fpsOn ? '' : 'none';
+    this.fpsEl.textContent = '… FPS';
+    container.appendChild(this.fpsEl);
 
     /* lights + sky */
     this.scene.fog = new THREE.FogExp2(TODS[0].fog, TODS[0].fogD);
@@ -798,6 +816,7 @@ export class Game {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.scareFace?.el.remove();
+    this.fpsEl.remove();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('pointerdown', this.onAnyGesture);
     window.removeEventListener('keydown', this.onAnyGesture);
@@ -835,6 +854,11 @@ export class Game {
 
   private onKeyDown = (e: KeyboardEvent) => {
     const code = e.code;
+    if (code === 'F3' && !e.repeat) {
+      e.preventDefault();
+      this.toggleFps();
+      return;
+    }
     if ((this.padActive || this.controllerDisconnected) && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.switchToKeyboard();
     // what this key does under the player's keybinds
     const virt = translate(code);
@@ -1109,6 +1133,37 @@ export class Game {
       /* storage blocked: just for this session */
     }
     this.applyQuality(next);
+  }
+
+  /** Shows or hides the FPS counter (F3, or Settings). Remembered on this device. */
+  toggleFps() {
+    this.fpsOn = !this.fpsOn;
+    try {
+      localStorage.setItem(FPS_KEY, this.fpsOn ? '1' : '0');
+    } catch {
+      /* storage blocked: just for this session */
+    }
+    this.fpsFrames = 0;
+    this.fpsSince = performance.now();
+    this.fpsEl.style.display = this.fpsOn ? '' : 'none';
+    this.emit();
+  }
+
+  /** Counts frames and refreshes the counter twice a second: frames per second, the slowest frame, and the graphics level. */
+  private updateFps(now: number) {
+    if (!this.fpsOn) return;
+    this.fpsFrames++;
+    this.fpsWorst = Math.max(this.fpsWorst, now - this.fpsLast);
+    this.fpsLast = now;
+    const span = now - this.fpsSince;
+    if (span < 500) return;
+    const fps = (this.fpsFrames * 1000) / span;
+    const label = { high: 'Cinematic', medium: 'Balanced', low: 'Fast', potato: 'Potato' }[this.gfx.quality];
+    this.fpsEl.textContent = `${Math.round(fps)} FPS · ${(span / this.fpsFrames).toFixed(1)} ms · worst ${Math.round(this.fpsWorst)} ms · ${label}`;
+    this.fpsEl.style.color = fps >= 50 ? '#7dff8a' : fps >= 28 ? '#ffd23d' : '#ff6a5a';
+    this.fpsFrames = 0;
+    this.fpsWorst = 0;
+    this.fpsSince = now;
   }
 
   /** A graphics level chosen earlier on this device, if any. */
@@ -1667,6 +1722,7 @@ export class Game {
     this.potato.update(dt);
     this.gfx.render(dt, this.time);
     this.watchPerformance(raw);
+    this.updateFps(now);
   };
 
   /** Saves a solo run's progress in this browser every couple of seconds between courses; a won run clears it. */
@@ -4272,6 +4328,7 @@ export class Game {
       controllerDisconnected: this.controllerDisconnected,
       muted: this.sfx.muted,
       gfx: this.gfx.quality,
+      fps: this.fpsOn,
       overReason: sim.overReason,
       allies: sim.livingAlliesCount(),
       alliesMax: MAX_SQUAD,

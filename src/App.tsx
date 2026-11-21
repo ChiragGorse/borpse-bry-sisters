@@ -215,6 +215,8 @@ export default function App() {
           onMute={() => game.current?.toggleMute()}
           gfx={hud.gfx}
           onGraphics={() => game.current?.cycleGraphics()}
+          fps={hud.fps}
+          onFps={() => game.current?.toggleFps()}
           onSfxPreview={() => game.current?.previewSfx()}
           onEditTouch={
             screen === 'paused' || screen === 'title'

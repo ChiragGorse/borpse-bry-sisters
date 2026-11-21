@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'New graphics setting, Potato: no lighting, no textures, no shadows, no grass and no sky. Everything is drawn in flat colour at a lower resolution, for very slow computers. Pick it in Settings (Graphics: Cinematic, Balanced, Fast, Potato).',
       'Your graphics choice is now remembered on your device.',
+      'FPS counter: press F3 (or turn it on in Settings) to see frames per second, how long frames take, the slowest frame and your graphics level, in the bottom-right corner. Green is smooth, yellow is OK, red is struggling.',
       'If the game still runs very slowly on Fast, it now drops to Potato on its own (unless you picked a setting yourself).',
     ],
   },
