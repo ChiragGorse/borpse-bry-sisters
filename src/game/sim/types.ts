@@ -35,7 +35,7 @@ export type AState =
   | 'spin'
   /** Sent to the Backrooms by Kioff's portal: gone from the farm for a few seconds. */
   | 'backrooms'
-  /** Beaten at the Grand Feast, he phones Earwhen for backup (a story moment). */
+  /** Beaten at his last solo course, he phones Earwhen for backup (a story moment). */
   | 'calling';
 
 export type Area = 'farm' | 'forest';

@@ -11,7 +11,6 @@ import { Sim } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { BTN, type PlayerInput } from '../src/game/sim/types';
 import { FOREST_EXIT, SPOT } from '../src/game/layout';
-import { COURSES } from '../src/game/data';
 
 const players = Number(process.argv[2] ?? 7);
 const minutes = Number(process.argv[3] ?? 12);
@@ -109,7 +108,7 @@ while (sim.time < minutes * 60 && !sim.outcome) {
   maxBots = Math.max(maxBots, sim.bots.length);
   if (sim.course !== lastCourse) {
     lastCourse = sim.course;
-    log(`course ${sim.course + 1}/${COURSES.length} up next · farm ${sim.farmPct().toFixed(0)}% · truffles ${sim.truffles}`);
+    log(`course ${sim.course + 1} up next · farm ${sim.farmPct().toFixed(0)}% · truffles ${sim.truffles}`);
   }
   if (sim.mode !== lastMode) {
     lastMode = sim.mode;

@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.20',
+    date: '2026-11-21',
+    title: 'Earwhen, Sooner',
+    changes: [
+      'Earwhen now shows up much earlier: Allen fights alone for 4 courses, calls for backup when you beat the Main Course, and from course 5 on every course is an Earwhen stage (9 of them, so a full run is 13 courses).',
+      'Allen keeps growing through his later courses while he fights beside Earwhen. Earwhen starts lighter, since you have fewer upgrades by then, and gets much tougher with every stage.',
+      "Path Guppy's jump scare is instant now. His face is drawn ahead of time and his model is ready before he leaps out, so there's no more freeze before the scare lands.",
+      'Saved runs from before this update carry on from the same course number, which may now be an Earwhen stage.',
+    ],
+  },
+  {
     version: 'Beta 0.19',
     date: '2026-11-20',
     title: 'Together Again',

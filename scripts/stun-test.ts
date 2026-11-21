@@ -6,7 +6,7 @@
  *   npm run stun:test
  */
 import { headlessMaps } from '../server/maps';
-import { COURSES, FINALE, UPGRADES, maxLevel } from '../src/game/data';
+import { FINALE, UPGRADES, maxLevel } from '../src/game/data';
 import { Sim } from '../src/game/sim/Sim';
 import { BotBrain } from '../src/game/sim/botBrain';
 import { BTN, type EarwhenBot, type PlayerInput } from '../src/game/sim/types';
@@ -76,7 +76,7 @@ function measure(pigs: number, course: number, boss: 'allen' | 'earwhen'): numbe
 }
 
 for (const pigs of [1, 3, 6]) {
-  const a = measure(pigs, COURSES.length - 1, 'allen');
+  const a = measure(pigs, FINALE - 1, 'allen');
   if (a > 0.27) fail(`${pigs} maxed pigs kept Allen stunned ${(a * 100).toFixed(0)}% of the fight`);
   ok(`${pigs} maxed pig${pigs > 1 ? 's' : ''} spamming stuns: Allen stunned ${(a * 100).toFixed(0)}% of the fight`);
 }

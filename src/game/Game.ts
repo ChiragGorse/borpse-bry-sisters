@@ -265,6 +265,10 @@ export class Game {
   private localId: number;
   private brain: BotBrain | null = null;
   private garden: GardenView;
+  /** Path Guppy's face, drawn ahead of time. */
+  private scareFace: { el: HTMLDivElement; portrait: boolean; w: number } | null = null;
+  /** A Path Guppy model built (and its shaders compiled) before he's needed. */
+  private spareGuppy: GuppyModel | null = null;
   private botIds: number[] = [];
   private wasOpening = false;
   private wasAllenActive = false;
@@ -785,6 +789,7 @@ export class Game {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.scareFace?.el.remove();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('pointerdown', this.onAnyGesture);
     window.removeEventListener('keydown', this.onAnyGesture);
@@ -1592,6 +1597,11 @@ export class Game {
     this.keys.clear();
     this.pressed.clear();
     this.shake = 0;
+    if (!farm) {
+      // Path Guppy lives here: have his face and his model ready before he jumps
+      this.prepareScareFace();
+      this.warmGuppy();
+    }
     for (const child of [...this.fx.children]) if (child !== this.arrow) child.remove();
     if (changed) {
       const fade = document.createElement('div');
@@ -1824,19 +1834,81 @@ export class Game {
     }
   }
 
+  /**
+   * Draws Path Guppy's face (a full-screen SVG with noise and warp filters, far too slow to draw live) into
+   * a canvas ahead of time, so the jump scare is instant: showing it is just showing a picture.
+   */
+  private prepareScareFace() {
+    const portrait = window.innerHeight > window.innerWidth;
+    const w = Math.min(1920, window.innerWidth);
+    const h = Math.round((w * window.innerHeight) / Math.max(1, window.innerWidth));
+    if (this.scareFace && this.scareFace.portrait === portrait && Math.abs(this.scareFace.w - w) < 64) return;
+    const svg = (portrait ? SCARE_FACE_SVG.replace('xMidYMid slice', 'xMidYMid meet') : SCARE_FACE_SVG).replace('<svg ', `<svg width="${w}" height="${h}" `);
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    img.src = url;
+    img
+      .decode()
+      .then(() => {
+        if (this.disposed) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+        const el = document.createElement('div');
+        el.className = 'scare-face';
+        el.setAttribute('aria-hidden', 'true');
+        el.appendChild(canvas);
+        // kept in the page (hidden), so it's ready the instant he jumps
+        this.scareFace?.el.remove();
+        document.body.appendChild(el);
+        this.scareFace = { el, portrait, w };
+      })
+      .catch(() => {
+        /* the live SVG still works as a fallback */
+      })
+      .finally(() => URL.revokeObjectURL(url));
+  }
+
+  /** Builds a spare Path Guppy and compiles his shaders now, so his first appearance doesn't stall a frame. */
+  private warmGuppy() {
+    if (this.spareGuppy) return;
+    const m = makePathGuppy();
+    m.root.position.set(0, -50, 0);
+    this.scene.add(m.root);
+    try {
+      this.renderer.compile(this.scene, this.camera);
+    } catch {
+      /* compiling early is only an optimisation */
+    }
+    m.root.visible = false;
+    this.spareGuppy = m;
+  }
+
   /** Path Guppy just leapt out at you: a white-red flash, a jolt, and a hard shake. */
   private jumpScare() {
     this.shake = Math.max(this.shake, 1.4);
     this.sfx.play('scream');
-    // his face, right in yours
-    const face = document.createElement('div');
-    face.className = 'scare-face';
-    // landscape: fill the screen; portrait: show the whole face, black above and below
-    face.innerHTML = window.innerHeight > window.innerWidth ? SCARE_FACE_SVG.replace('xMidYMid slice', 'xMidYMid meet') : SCARE_FACE_SVG;
-    // over everything, HUD included
-    document.body.appendChild(face);
+    // his face, right in yours, over everything (HUD included)
+    let face: HTMLDivElement;
+    const ready = this.scareFace && this.scareFace.portrait === window.innerHeight > window.innerWidth ? this.scareFace : null;
+    if (ready) {
+      face = ready.el;
+      // restart the animation
+      face.classList.remove('on');
+      void face.offsetWidth;
+      face.classList.add('on');
+    } else {
+      // not drawn yet: show the live SVG this once (landscape fills the screen; portrait shows the whole face)
+      face = document.createElement('div');
+      face.className = 'scare-face on';
+      face.innerHTML = window.innerHeight > window.innerWidth ? SCARE_FACE_SVG.replace('xMidYMid slice', 'xMidYMid meet') : SCARE_FACE_SVG;
+      document.body.appendChild(face);
+      this.prepareScareFace();
+    }
     window.setTimeout(() => {
-      face.remove();
+      if (face === this.scareFace?.el) face.classList.remove('on');
+      else face.remove();
       // then a red after-flash as he drops back into the dark
       const el = document.createElement('div');
       el.className = 'scare-flash';
@@ -3351,7 +3423,9 @@ export class Game {
       this.botViews,
       (b) => {
         if (b.kind === 'guppy') {
-          const m = makePathGuppy();
+          const m = this.spareGuppy ?? makePathGuppy();
+          this.spareGuppy = null;
+          m.root.visible = true;
           m.root.position.set(b.x, 0, b.z);
           m.root.rotation.y = b.heading;
           this.scene.add(m.root);
@@ -4082,7 +4156,7 @@ export class Game {
       // Earwhen's stages count up on their own: "Earwhen 3/9"
       course: sim.course >= FINALE ? earwhenStage(sim.course) : ci,
       courseName: sim.course >= FINALE ? `Earwhen: ${EARWHEN_STAGES[earwhenStage(sim.course)]}` : COURSES[ci].name,
-      courseCount: sim.course >= FINALE ? EARWHEN_STAGES.length : COURSES.length,
+      courseCount: sim.course >= FINALE ? EARWHEN_STAGES.length : FINALE,
       hp: Math.ceil(k.hp),
       maxHp: k.maxHp,
       stam: k.stam,

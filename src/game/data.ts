@@ -644,10 +644,12 @@ export const SLOT_CODES = ['KeyQ', 'KeyF', 'KeyC', 'KeyV', 'KeyX', 'KeyG'] as co
 export const OPENING_BEATS = 10;
 
 /**
- * The finale: after the Grand Feast, Allen calls for backup. Course index FINALE (one past the last regular
- * course) is the fight against Earwhen with a battered Allen at his side.
+ * Allen fights alone for the first ALLEN_COURSES courses; beaten at the last of them, he calls for backup.
+ * From course index FINALE on, every course is an Earwhen stage with Allen at his side (Allen keeps
+ * growing through the later COURSES entries).
  */
-export const FINALE = COURSES.length;
+export const ALLEN_COURSES = 4;
+export const FINALE = ALLEN_COURSES;
 /** Earwhen's stages, from the first fight (with Allen) to the last; each one hits harder. */
 export const EARWHEN_STAGES = [
   "Earwhen's Feast",

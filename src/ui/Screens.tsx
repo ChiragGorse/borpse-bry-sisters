@@ -372,7 +372,7 @@ export function TitleScreen({
             </button>
           )}
           <div className="text-sm font-bold text-paper/80">
-            <p>8 brutal courses · a finale boss · truffle hunts in haunted Folk Valley</p>
+            <p>4 brutal courses · then Earwhen, 9 stages of cream · truffle hunts in haunted Folk Valley</p>
             {pad ? (
               <p className="mt-1 flex items-center gap-2 text-[#ffe6a0]" role="status"><Key>{padLabel(pad, 'south')}</Key> Start with controller</p>
             ) : touch ? (

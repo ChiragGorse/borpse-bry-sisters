@@ -1201,7 +1201,7 @@ export class Sim {
     if (finale) {
       const st = earwhenStage(this.course);
       const last = this.course >= LAST_COURSE;
-      // Allen fights beside him every stage, at his Grand Feast best and stronger each time:
+      // Allen fights beside him every stage, growing through his later courses and stronger each time:
       // battered in the first, back at full strength in the last
       A.hp = A.maxHp = Math.round(c.hp * this.hpScale() * this.finaleAllenHp(st, last));
       // a sauce shield to break first: from stage 5 for anyone, from the start for a big herd
@@ -1219,13 +1219,13 @@ export class Sim {
       this.showBanner(`EARWHEN ${st + 1}/${EARWHEN_STAGES.length} · ${EARWHEN_STAGES[st].toUpperCase()}`, st === 0 ? 'Allen brought backup' : last ? 'Earwhen and Allen, together, at full strength' : 'Earwhen is back for more');
       this.earwhenWaveT = 8;
     } else {
-      this.showBanner(`COURSE ${this.course + 1}/${COURSES.length} · ${c.name.toUpperCase()}`, c.newFoe ?? 'Allen B. Hwang is at the gate');
+      this.showBanner(`COURSE ${this.course + 1}/${FINALE} · ${c.name.toUpperCase()}`, c.newFoe ?? 'Allen B. Hwang is at the gate');
       this.say('Allen', c.intro, 4.4);
     }
     this.events.push({ t: 'lookAt', x: A.x, z: 60 });
   }
 
-  /** Allen's health in an Earwhen stage, as a share of his Grand Feast health. */
+  /** Allen's health in an Earwhen stage, as a share of that course's health. */
   private finaleAllenHp(st: number, last: boolean) {
     if (last) return 1;
     return st === 0 ? EARWHEN.allenHp : 0.6 + 0.05 * st;
@@ -1261,7 +1261,7 @@ export class Sim {
     this.bots = this.bots.filter(keep);
     this.projs = finale ? this.projs.filter((p) => p.kind === 'cream' || p.kind === 'blob' || p.kind === 'robot') : [];
     this.puddles = finale ? this.puddles.filter((p) => p.cream) : [];
-    const last = this.course >= COURSES.length - 1;
+    const last = this.course === FINALE - 1;
     const W = this.earwhen();
     const farm = this.farmPct();
     const bonus = 28 + 14 * this.course + Math.round(farm / 6);
@@ -1285,7 +1285,7 @@ export class Sim {
       this.showBanner('ALLEN IS DOWN', W ? `+${bonus} truffles · now take down Earwhen!` : `+${bonus} truffles · farm ${Math.round(farm)}%${lossNote}`);
     } else {
       this.say('Allen', last ? "No. NO! I am NOT trying the tofu!" : this.pick(["I'll be back with hotter woks!", "This isn't over, bacon!", 'Next course is gonna HURT, Kenji!']), last ? 2.6 : 4.5);
-      this.showBanner(last ? 'THE GRAND FEAST IS OVER' : 'COURSE CLEARED', last ? '…or is it?' : `+${bonus} truffles · farm ${Math.round(farm)}%${lossNote}`);
+      this.showBanner(last ? `${COURSES[this.course].name.toUpperCase()} IS OVER` : 'COURSE CLEARED', last ? '…or is it?' : `+${bonus} truffles · farm ${Math.round(farm)}%${lossNote}`);
     }
   }
 
@@ -4302,7 +4302,7 @@ export class Sim {
       case 'defeated': {
         if (A.t >= 1.6) {
           if (this.course >= FINALE) this.setA('ko');
-          else if (this.course >= COURSES.length - 1) this.setA('calling');
+          else if (this.course === FINALE - 1) this.setA('calling');
           else {
             A.sx = A.x;
             A.sz = A.z;
@@ -4555,8 +4555,8 @@ export class Sim {
   private spawnEarwhen(fx: number, fz: number, tx: number, tz: number) {
     this.bots = this.bots.filter((b) => b.kind !== 'earwhen');
     const st = Math.max(0, earwhenStage(this.course));
-    // tougher every stage
-    const grow = this.course >= LAST_COURSE ? 1.5 : 1 + 0.12 * st;
+    // tougher every stage: he turns up after only four courses, so he starts out lighter than he ends
+    const grow = this.course >= LAST_COURSE ? 1.5 : 0.6 + 0.14 * st;
     const hp = Math.round(EARWHEN.hp * (1 + EARWHEN_HP_PER_PLAYER * Math.max(0, this.players.length - 1)) * grow);
     this.bots.push({
       id: this.id(),
@@ -4572,7 +4572,7 @@ export class Sim {
   }
 
   /**
-   * The story moment after the Grand Feast: Allen, furious, phones Earwhen, who leaps in over the fence.
+   * The story moment after Allen's last solo course: Allen, furious, phones Earwhen, who leaps in over the fence.
    * `was` and `now` are Allen's state clock before and after this step, so each line fires once.
    */
   private updateBackupCall(was: number, now: number) {
@@ -4730,7 +4730,7 @@ export class Sim {
     // fighting alone (the middle stages) he goes all out
     const solo = !this.A.active;
     const rage = (b.rage ? 0.7 : 1) * EARWHEN.cooldown * Math.max(0.55, 1 - 0.05 * st) * (solo ? 0.85 : 1);
-    const dm = EARWHEN.dmg * (1 + EARWHEN_DMG_PER_PLAYER * Math.max(0, this.players.length - 1)) * (b.rage ? 1.25 : 1) * (1 + 0.07 * st) * (solo ? 1.1 : 1);
+    const dm = EARWHEN.dmg * (1 + EARWHEN_DMG_PER_PLAYER * Math.max(0, this.players.length - 1)) * (b.rage ? 1.25 : 1) * (0.75 + 0.09 * st) * (solo ? 1.1 : 1);
     b.cdSpray -= dt;
     b.cdStream -= dt;
     b.cdBlob -= dt;

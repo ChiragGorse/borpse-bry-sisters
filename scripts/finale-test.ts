@@ -49,7 +49,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
 {
   const sim = setup();
   const S = sim as Internals;
-  sim.course = COURSES.length - 1;
+  sim.course = FINALE - 1;
   S.beginCourse();
   run(sim, 2);
   S.defeatAllen();
@@ -73,7 +73,7 @@ const earwhen = (sim: Sim) => sim.bots.find((b): b is EarwhenBot => b.kind === '
   if (!W) fail('no Earwhen in the final course');
   const allenHp1 = sim.A.maxHp;
   // compared with the Grand Feast's health for this herd size
-  if (sim.A.maxHp >= COURSES[COURSES.length - 1].hp * (1 + 0.6 * (pigs - 1))) fail('Allen should come back weakened');
+  if (sim.A.maxHp >= COURSES[FINALE].hp * (1 + 0.6 * (pigs - 1))) fail('Allen should come back weakened');
   ok(`final course: Earwhen ${W!.maxHp} HP, Allen ${sim.A.maxHp} HP`);
   const acts = new Set<string>();
   const hp0 = sim.players.reduce((a, p) => a + p.hp, 0);
