@@ -7,8 +7,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 
-/** `potato`: no lighting, no textures, no shadows, no sky, low resolution. */
-export type Quality = 'high' | 'medium' | 'low' | 'potato';
+import { PRESETS, type GfxSettings } from './graphics';
 
 export interface SkyState {
   /** Unit vector toward the sun (or moon). */
@@ -78,7 +77,7 @@ function makeSky(disk: number): Sky {
  * never choke on multisampled FP16 bandwidth.
  */
 export class Gfx {
-  quality: Quality = 'high';
+  settings: GfxSettings = { ...PRESETS.high };
   /** Extra DPR clamp for bandwidth-limited mobile dGPUs on 2× Retina panels (e.g. Intel MacBook Pros). */
   retinaClamp = false;
 
@@ -165,12 +164,14 @@ export class Gfx {
 
   private pixelRatio(): number {
     const dpr = window.devicePixelRatio || 1;
-    if (this.retinaClamp) {
-      return Math.min(dpr, this.quality === 'high' ? 1.15 : this.quality === 'medium' ? 1.0 : 0.85);
-    }
-    if (this.quality === 'potato') return Math.min(dpr, 0.7);
-    const cap = this.quality === 'high' ? 1.35 : this.quality === 'medium' ? 1.1 : 1.0;
-    return Math.min(dpr, cap);
+    // bandwidth-starved Retina GPUs run a notch lower at the same setting
+    const res = this.settings.resolution * (this.retinaClamp ? 0.85 : 1);
+    return Math.min(dpr, res);
+  }
+
+  /** The post-processing chain runs only for ambient occlusion or bloom and grading. */
+  private get composed() {
+    return this.settings.ao || this.settings.effects;
   }
 
   setSize(w: number, h: number) {
@@ -179,7 +180,7 @@ export class Gfx {
     const pr = this.pixelRatio();
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
-    if (this.quality !== 'low' && this.quality !== 'potato') {
+    if (this.composed) {
       this.composer.setPixelRatio(pr);
       this.composer.setSize(w, h);
       // Run both GTAO and Bloom at half buffer resolution (~4× less fill-rate cost, virtually identical quality)
@@ -190,16 +191,17 @@ export class Gfx {
     }
   }
 
-  setQuality(q: Quality) {
-    this.quality = q;
-    this.ao.enabled = q === 'high';
-    const potato = q === 'potato';
-    // potato: flat colours as they are (no tone mapping), a plain background instead of the sky shader,
-    // and no sky reflections
-    this.renderer.toneMapping = potato ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = potato ? 1 : this.renderer.toneMappingExposure;
-    this.sky.visible = !potato;
-    if (potato) {
+  apply(s: GfxSettings) {
+    this.settings = { ...s };
+    this.ao.enabled = s.ao;
+    this.bloom.enabled = s.effects;
+    this.grade.enabled = s.effects;
+    const flat = s.lighting === 'flat';
+    // flat lighting: colours as they are (no tone mapping) and no sky reflections
+    this.renderer.toneMapping = flat ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    if (flat) this.renderer.toneMappingExposure = 1;
+    this.sky.visible = s.sky;
+    if (flat) {
       this.scene.environment = null;
       this.envKey = '';
     } else if (this.envRT) this.scene.environment = this.envRT.texture;
@@ -207,15 +209,17 @@ export class Gfx {
   }
 
   setSky(s: SkyState, dt: number) {
-    if (this.quality === 'potato') {
+    const flat = this.settings.lighting === 'flat';
+    if (!this.settings.sky) {
       // no sky shader: just a flat colour, the fog's if there is one
       const fog = this.scene.fog as THREE.Fog | THREE.FogExp2 | null;
       const bg = (this.scene.background instanceof THREE.Color ? this.scene.background : (this.scene.background = new THREE.Color())) as THREE.Color;
       if (fog) bg.copy(fog.color);
       else bg.setRGB(0.55, 0.75, 0.92).multiplyScalar(Math.max(0.15, Math.min(1, s.gain)));
-      return;
-    }
-    if (this.scene.background instanceof THREE.Color) this.scene.background = null;
+    } else if (this.scene.background instanceof THREE.Color) this.scene.background = null;
+    // with flat lighting there's nothing for the sky to light
+    if (flat) return;
+    // the sky still lights the scene (reflections) even when it isn't shown
     for (const sky of [this.sky, this.envSky]) {
       const u = sky.material.uniforms;
       u.turbidity.value = s.turbidity;
@@ -243,7 +247,7 @@ export class Gfx {
 
   render(dt: number, time: number) {
     this.sky.position.copy(this.camera.position);
-    if (this.quality === 'low' || this.quality === 'potato') {
+    if (!this.composed) {
       this.renderer.render(this.scene, this.camera);
       return;
     }

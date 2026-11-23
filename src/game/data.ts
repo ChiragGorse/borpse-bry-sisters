@@ -1,4 +1,5 @@
 import type { PadLayout } from './gamepad';
+import type { GfxSettings } from './graphics';
 
 export type NpcId = 'rickley' | 'kingger' | 'trout' | 'kioff' | 'charig';
 export type Screen = 'title' | 'play' | 'shop' | 'paused' | 'gameover' | 'victory';
@@ -566,7 +567,7 @@ export interface HudState {
   gamepad: { layout: PadLayout; active: boolean } | null;
   controllerDisconnected: boolean;
   muted: boolean;
-  gfx: 'high' | 'medium' | 'low' | 'potato';
+  gfx: GfxSettings;
   /** The FPS counter is showing. */
   fps: boolean;
   overReason: GameOverReason | null;

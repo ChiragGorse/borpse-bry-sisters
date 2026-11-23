@@ -214,7 +214,7 @@ export default function App() {
           muted={hud.muted}
           onMute={() => game.current?.toggleMute()}
           gfx={hud.gfx}
-          onGraphics={() => game.current?.cycleGraphics()}
+          onGraphics={(c) => game.current?.setGraphics(c)}
           fps={hud.fps}
           onFps={() => game.current?.toggleFps()}
           onSfxPreview={() => game.current?.previewSfx()}

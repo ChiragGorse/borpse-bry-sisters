@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: 'Beta 0.23',
+    date: '2026-11-23',
+    title: 'Your Graphics, Your Way',
+    changes: [
+      'Graphics are now split into separate settings you can mix freely: Lighting (full or flat), Textures, Shadows (off to high), Ambient occlusion, Bloom & colour, Sky, Grass, Particles and Resolution (50% to 135%).',
+      'The presets (Cinematic, Balanced, Fast, Potato) still set everything at once; change any one setting and it becomes Custom.',
+      "Turning textures off keeps sign lettering. Flat lighting can now keep textures too, and Herb's lantern still lights the forest with flat lighting.",
+      'Your graphics settings are saved on this device (an older saved preset carries over).',
+    ],
+  },
+  {
     version: 'Beta 0.22',
     date: '2026-11-21',
     title: 'Potato by Default',

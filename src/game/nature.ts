@@ -37,7 +37,7 @@ export function groundMaterial(color: number, layer: number): THREE.MeshStandard
   m.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
-      '#include <map_fragment>\n\tdiffuseColor.rgb *= mix( 0.8, 1.14, texture2D( map, vMapUv * 0.071 ).g );',
+      '#include <map_fragment>\n#ifdef USE_MAP\n\tdiffuseColor.rgb *= mix( 0.8, 1.14, texture2D( map, vMapUv * 0.071 ).g );\n#endif',
     );
   };
   return m;

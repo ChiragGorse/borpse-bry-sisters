@@ -49,7 +49,8 @@ import {
 import { COMBOS, COMBO_TIERS, comboTier, xpForRank, ACTIVE_IDS, ACTIVE_INFO, COURSES, EARWHEN_STAGES, FINALE, earwhenStage, LOADOUT_SLOTS, OPENING_BEATS, SLOT_CODES, UPGRADES, type ActiveId, type BotKind, type HudState, type Screen, type UpgradeId } from './data';
 import { Sfx } from './audio';
 import { Music } from './music';
-import { Gfx, type Quality } from './gfx';
+import { Gfx } from './gfx';
+import { PRESETS, PRESET_ORDER, loadGraphics, presetOf, saveGraphics, sanitize, settingsLabel, type GfxSettings, type Preset } from './graphics';
 import { PotatoMode } from './potato';
 import { setGrassDensity, tickNature } from './nature';
 import { CombatVfx } from './vfx';
@@ -70,8 +71,6 @@ import { clearSave, loadSave, writeSave, type SaveData } from './save';
 import { GAME_VERSION } from './changelog';
 import { ALLEN_ID, BTN, type EarwhenBot, type Ally, type Area, type Bot, type Player, type PlayerInput, type SimEvent, type SimMaps } from './sim/types';
 
-/** The graphics level you picked, remembered on this device. */
-const GFX_KEY = 'borpse.gfx';
 const FPS_KEY = 'borpse.fps';
 
 const PI = Math.PI;
@@ -540,10 +539,9 @@ export class Game {
     this.scene.add(this.shieldGroup);
 
     // Potato is the default look; pick another in Settings (it's remembered)
-    const saved = this.savedQuality();
-    this.detectQuality(); // still notes Retina clamps for the other levels
+    this.detectQuality(); // notes Retina clamps
     this.gfxAuto = false;
-    this.applyQuality(saved ?? 'potato');
+    this.applyGraphics(loadGraphics() ?? { ...PRESETS.potato });
     this.placeTitle();
     this.resize();
     this.bind();
@@ -1124,17 +1122,14 @@ export class Game {
     this.keys.delete(code);
   }
 
-  /** Settings graphics switch: Cinematic → Balanced → Fast → Potato. Your choice is remembered on this device. */
-  cycleGraphics() {
+  /**
+   * Changes graphics settings: a preset by name, or any of the individual settings. Saved on this device.
+   */
+  setGraphics(change: Preset | Partial<GfxSettings>) {
     this.gfxAuto = false;
-    const q = this.gfx.quality;
-    const next: Quality = q === 'high' ? 'medium' : q === 'medium' ? 'low' : q === 'low' ? 'potato' : 'high';
-    try {
-      localStorage.setItem(GFX_KEY, next);
-    } catch {
-      /* storage blocked: just for this session */
-    }
-    this.applyQuality(next);
+    const next = typeof change === 'string' ? { ...PRESETS[change] } : sanitize({ ...this.gfx.settings, ...change });
+    saveGraphics(next);
+    this.applyGraphics(next);
   }
 
   /** Shows or hides the FPS counter (F3, or Settings). Remembered on this device. */
@@ -1160,7 +1155,7 @@ export class Game {
     const span = now - this.fpsSince;
     if (span < 500) return;
     const fps = (this.fpsFrames * 1000) / span;
-    const label = { high: 'Cinematic', medium: 'Balanced', low: 'Fast', potato: 'Potato' }[this.gfx.quality];
+    const label = settingsLabel(this.gfx.settings);
     this.fpsEl.textContent = `${Math.round(fps)} FPS · ${(span / this.fpsFrames).toFixed(1)} ms · worst ${Math.round(this.fpsWorst)} ms · ${label}`;
     this.fpsEl.style.color = fps >= 50 ? '#7dff8a' : fps >= 28 ? '#ffd23d' : '#ff6a5a';
     this.fpsFrames = 0;
@@ -1168,22 +1163,12 @@ export class Game {
     this.fpsSince = now;
   }
 
-  /** A graphics level chosen earlier on this device, if any. */
-  private savedQuality(): Quality | null {
-    try {
-      const q = localStorage.getItem(GFX_KEY);
-      return q === 'high' || q === 'medium' || q === 'low' || q === 'potato' ? q : null;
-    } catch {
-      return null;
-    }
-  }
-
   /**
    * Picks a starting graphics level from the GPU name + HiDPI display; the pause menu and real-time
    * frame-rate watchdog can adjust it anytime. Older mobile dGPUs (e.g. Radeon Pro 4xx/5xx/5300M/5500M,
    * Vega mobile, GeForce MX/9xxM) and Retina Intel Macs default to Balanced instead of Cinematic.
    */
-  private detectQuality(): Quality {
+  private detectQuality(): Preset {
     try {
       const gl = this.renderer.getContext();
       const ext = gl.getExtension('WEBGL_debug_renderer_info');
@@ -1212,27 +1197,28 @@ export class Game {
   }
 
   private grassFactor() {
-    const q = this.gfx.quality;
-    return q === 'high' ? 1 : q === 'medium' ? 0.52 : q === 'low' ? 0.2 : 0;
+    return { off: 0, low: 0.2, medium: 0.52, high: 1 }[this.gfx.settings.grass];
   }
 
-  private applyQuality(q: Quality) {
-    this.gfx.setQuality(q);
-    // potato: flat unlit colours, no textures, no shadows
-    const potato = q === 'potato';
-    this.potato.setActive(potato);
-    if (this.renderer.shadowMap.enabled === potato) {
-      this.renderer.shadowMap.enabled = !potato;
-      this.sun.castShadow = !potato;
+  private applyGraphics(g: GfxSettings) {
+    this.gfx.apply(g);
+    const flat = g.lighting === 'flat';
+    // flat lighting and/or no textures: swap or strip materials
+    this.potato.setMode(flat, g.textures);
+    // shadows only mean anything with real lighting
+    const shadows = !flat && g.shadows !== 'off';
+    if (this.renderer.shadowMap.enabled !== shadows) {
+      this.renderer.shadowMap.enabled = shadows;
+      this.sun.castShadow = shadows;
     }
-    // 2048 (Cinematic) / 1024 (Balanced) / 768 (Fast): 4×–28× less shadow bandwidth than 4096 while staying crisp
-    const size = q === 'high' ? 2048 : q === 'medium' ? 1024 : 768;
+    // 2048 (high) / 1024 (medium) / 768 (low): 4×–28× less shadow bandwidth than 4096 while staying crisp
+    const size = g.shadows === 'high' ? 2048 : g.shadows === 'medium' ? 1024 : 768;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.mapSize.set(size, size);
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
     }
-    this.parts.density = q === 'high' ? 1 : q === 'medium' ? 0.78 : q === 'low' ? 0.5 : 0.3;
+    this.parts.density = { low: 0.4, medium: 0.78, high: 1 }[g.particles];
     setGrassDensity(this.world.grass, this.grassFactor());
     if (this.forest) setGrassDensity(this.forest.grass, this.grassFactor());
     this.emit();
@@ -1243,7 +1229,7 @@ export class Game {
    * Uses real wall-clock time (not clamped game `dt`) so a slow GPU recovers within ~1.5 seconds instead of 40s.
    */
   private watchPerformance(raw: number) {
-    if (!this.gfxAuto || document.hidden || raw <= 0 || raw > 2000 || this.gfx.quality === 'potato') return;
+    if (!this.gfxAuto || document.hidden || raw <= 0 || raw > 2000 || presetOf(this.gfx.settings) === 'potato') return;
     const sec = Math.min(raw, 500) / 1000;
     this.wallTime += sec;
     if (this.wallTime < 1.8) return; // skip initial shader compile / first-frame warmup
@@ -1259,7 +1245,8 @@ export class Game {
     if (this.slowT > 1.4) {
       this.slowT = 0;
       this.frameMs = 16;
-      this.applyQuality(this.gfx.quality === 'high' ? 'medium' : this.gfx.quality === 'medium' ? 'low' : 'potato');
+      const now = presetOf(this.gfx.settings) ?? 'low';
+      this.applyGraphics({ ...PRESETS[PRESET_ORDER[Math.min(PRESET_ORDER.length - 1, PRESET_ORDER.indexOf(now) + 1)]] });
     }
   }
 
@@ -4331,7 +4318,7 @@ export class Game {
       gamepad: this.padLayout ? { layout: this.padLayout, active: this.padActive } : null,
       controllerDisconnected: this.controllerDisconnected,
       muted: this.sfx.muted,
-      gfx: this.gfx.quality,
+      gfx: { ...this.gfx.settings },
       fps: this.fpsOn,
       overReason: sim.overReason,
       allies: sim.livingAlliesCount(),

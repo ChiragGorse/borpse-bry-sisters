@@ -2,7 +2,104 @@ import { useEffect, useState } from 'react';
 import { VolumeSliders } from './VolumeSliders';
 import { BIND_ACTIONS, MAX_KEYS, assignKey, clearKey, getBinds, keyLabel, onBindsChange, resetBinds, setBinds, type BindAction } from '../game/keybinds';
 
-const GFX_LABEL = { high: 'Cinematic', medium: 'Balanced', low: 'Fast', potato: 'Potato' } as const;
+import { PRESET_LABEL, PRESET_ORDER, RESOLUTIONS, presetOf, type GfxSettings, type Preset } from '../game/graphics';
+
+/** One row of choices, like a segmented switch. */
+function Choice<T extends string | number | boolean>({
+  label,
+  hint,
+  value,
+  options,
+  onPick,
+  disabled,
+}: {
+  label: string;
+  hint?: string;
+  value: T;
+  options: [T, string][];
+  onPick: (v: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${disabled ? 'opacity-45' : ''}`} role="radiogroup" aria-label={label}>
+      <span className="min-w-[8.5rem] flex-1 text-[13px] font-bold" title={hint}>
+        {label}
+      </span>
+      <span className="flex flex-wrap gap-1">
+        {options.map(([v, text]) => (
+          <button
+            key={String(v)}
+            type="button"
+            role="radio"
+            aria-checked={value === v}
+            disabled={disabled}
+            onClick={() => onPick(v)}
+            className={`rounded-md border-2 px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide ${value === v ? 'border-ink bg-mustard' : 'border-ink/25 bg-white text-ink/70'}`}
+          >
+            {text}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** Graphics: presets that set everything, and every setting on its own. */
+function GraphicsSettings({ gfx, onGraphics }: { gfx: GfxSettings; onGraphics: (c: Preset | Partial<GfxSettings>) => void }) {
+  const preset = presetOf(gfx);
+  const flat = gfx.lighting === 'flat';
+  const onOff: [boolean, string][] = [
+    [true, 'On'],
+    [false, 'Off'],
+  ];
+  return (
+    <section aria-label="Graphics" className="mt-3 rounded-xl border-[2.5px] border-ink bg-white p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ink/55">Graphics</h3>
+        {!preset && <span className="rounded-full bg-ink px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-paper">Custom</span>}
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Graphics preset">
+        {PRESET_ORDER.map((p) => (
+          <button
+            key={p}
+            type="button"
+            role="radio"
+            aria-checked={preset === p}
+            onClick={() => onGraphics(p)}
+            className={`btn px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide ${preset === p ? 'bg-mustard' : 'bg-white'}`}
+          >
+            {PRESET_LABEL[p]}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] font-bold text-ink/55">A preset sets everything below; change anything on its own and it becomes Custom.</p>
+      <div className="mt-2 grid gap-1.5">
+        <Choice label="Lighting" hint="Flat: no lighting at all, plain colours (Herb's lantern still lights the forest)." value={gfx.lighting} options={[['full', 'Full'], ['flat', 'Flat']]} onPick={(v) => onGraphics({ lighting: v })} />
+        <Choice label="Textures" hint="Ground, wood and roof textures and bump detail. Signs keep their lettering." value={gfx.textures} options={onOff} onPick={(v) => onGraphics({ textures: v })} />
+        <Choice
+          label="Shadows"
+          hint={flat ? 'Needs full lighting.' : 'Sharper shadows cost more.'}
+          disabled={flat}
+          value={gfx.shadows}
+          options={[['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High']]}
+          onPick={(v) => onGraphics({ shadows: v })}
+        />
+        <Choice label="Ambient occlusion" hint="Soft shadows in corners and under things. The most expensive effect." value={gfx.ao} options={onOff} onPick={(v) => onGraphics({ ao: v })} />
+        <Choice label="Bloom & colour" hint="Glow around bright things and colour grading." value={gfx.effects} options={onOff} onPick={(v) => onGraphics({ effects: v })} />
+        <Choice label="Sky" hint="The atmospheric sky, or a plain colour." value={gfx.sky} options={onOff} onPick={(v) => onGraphics({ sky: v })} />
+        <Choice label="Grass" value={gfx.grass} options={[['off', 'Off'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High']]} onPick={(v) => onGraphics({ grass: v })} />
+        <Choice label="Particles" hint="Sparks, dust and splashes." value={gfx.particles} options={[['low', 'Low'], ['medium', 'Med'], ['high', 'High']]} onPick={(v) => onGraphics({ particles: v })} />
+        <Choice
+          label="Resolution"
+          hint="Lower draws fewer pixels: blurrier but faster. Never above your screen's own."
+          value={gfx.resolution}
+          options={RESOLUTIONS.map((r) => [r, `${Math.round(r * 100)}%`] as [number, string])}
+          onPick={(v) => onGraphics({ resolution: v })}
+        />
+      </div>
+    </section>
+  );
+}
 
 /**
  * Settings: sound, graphics, keyboard rebinding, and (on touch screens) arranging the on-screen buttons.
@@ -29,8 +126,8 @@ export function SettingsDialog({
   onEditTouch?: () => void;
   muted?: boolean;
   onMute?: () => void;
-  gfx?: 'high' | 'medium' | 'low' | 'potato';
-  onGraphics?: () => void;
+  gfx?: GfxSettings;
+  onGraphics?: (change: Preset | Partial<GfxSettings>) => void;
 }) {
   const [tab, setTab] = useState<'keys' | 'touch'>(touch ? 'touch' : 'keys');
   const [binds, setLocal] = useState(getBinds);
@@ -110,16 +207,13 @@ export function SettingsDialog({
           <VolumeSliders onSfxPreview={onSfxPreview} />
         </section>
 
-        {(onMute || onGraphics || onFps) && (
+        {onGraphics && gfx && <GraphicsSettings gfx={gfx} onGraphics={onGraphics} />}
+
+        {(onMute || onFps) && (
           <div className="mt-3 flex flex-wrap gap-2">
             {onMute && (
               <button type="button" onClick={onMute} aria-pressed={muted} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide">
                 Sound: {muted ? 'off' : 'on'}
-              </button>
-            )}
-            {onGraphics && gfx && (
-              <button type="button" onClick={onGraphics} className="btn bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-wide" title="Cinematic adds ambient occlusion, denser grass and sharper shadows. Fast is for slower computers. Potato turns off lighting, textures, shadows, grass and the sky for the slowest ones.">
-                Graphics: {GFX_LABEL[gfx]}
               </button>
             )}
             {onFps && (
