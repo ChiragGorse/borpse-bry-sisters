@@ -98,6 +98,7 @@ src/
 server/              Node game server: rooms, WebSockets, serves the built page
 scripts/             headless tests
 docs/                MULTIPLAYER.md (architecture), HOSTING.md (running a server)
+numworks/            a tiny 2D version for the NumWorks calculator (see numworks/README.md)
 ```
 
 ## Credits
